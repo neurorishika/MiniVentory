@@ -26,11 +26,11 @@ services:
     environment:
       # Ensure the app points at the compose mongo
       MONGO_URI: "mongodb://mongo:27017"
-      APP_PORT: "8000"
+      APP_PORT: "2152"
     ports:
-      - "8000:8000"              # Host:Container
+      - "2152:2152"              # Host:Container
     healthcheck:
-      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:2152/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 10

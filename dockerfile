@@ -26,16 +26,16 @@ USER appuser
 
 # Environment defaults (override via .env)
 ENV APP_HOST=0.0.0.0 \
-    APP_PORT=8000 \
+    APP_PORT=2152 \
     GUNICORN_WORKERS=2 \
     GUNICORN_THREADS=4 \
     GUNICORN_TIMEOUT=30
 
-EXPOSE 8000
+EXPOSE 2152
 
 # HEALTHCHECK (simple TCP)
 HEALTHCHECK --interval=30s --timeout=3s --retries=5 \
   CMD curl -fsS http://127.0.0.1:${APP_PORT}/health || exit 1
 
 ENTRYPOINT ["/usr/bin/tini","--"]
-CMD ["gunicorn","-w","2","--threads","4","--timeout","30","-b","0.0.0.0:8000","app:app"]
+CMD ["gunicorn","-w","2","--threads","4","--timeout","30","-b","0.0.0.0:2152","app:app"]

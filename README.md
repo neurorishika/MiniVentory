@@ -55,7 +55,7 @@ Edit **.env**:
    docker compose build
    docker compose up -d
    ```
-5. Visit the app at `http://<host>:8000/`
+5. Visit the app at `http://<host>:2152/`
 6. Click **Admin** → enter your `ADMIN_PIN`.
 
 > Development mode: you can still run `python app.py` locally if you want.
@@ -92,7 +92,7 @@ Use **Control Panel → Login Portal → Reverse Proxy**:
 * **Create**:
 
   * Source: `https://stockroom.yourlab.local` → Port 443
-  * Destination: `http://127.0.0.1:8000` (or the container IP\:port)
+  * Destination: `http://127.0.0.1:2152` (or the container IP\:port)
 * **Certificates**: Control Panel → Security → Certificate → add/assign cert to the RP host.
 * Lock **external** access to trusted subnets only (Firewall → Allowlist).
 
@@ -110,7 +110,7 @@ Open **Control Panel → Task Scheduler** and add two **User-defined script** ta
 * **Run command**:
 
   ```bash
-  curl -fsS "http://127.0.0.1:8000/tasks/summary?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
+  curl -fsS "http://127.0.0.1:2152/tasks/summary?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
   ```
 
   > It only sends an email when the current UTC hour matches your admin setting and it hasn’t been sent for the period (day/week).
@@ -121,12 +121,12 @@ Open **Control Panel → Task Scheduler** and add two **User-defined script** ta
 * **Run command**:
 
   ```bash
-  curl -fsS "http://127.0.0.1:8000/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
+  curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
   ```
 
   > It replenishes **only** items that are due per their schedule; updates are atomic and idempotent.
 
-> If your app is behind Synology Reverse Proxy, replace `127.0.0.1:8000` with your internal RP hostname.
+> If your app is behind Synology Reverse Proxy, replace `127.0.0.1:2152` with your internal RP hostname.
 
 ---
 

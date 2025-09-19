@@ -7,12 +7,12 @@ services:
     env_file:
       - .env
     environment:
-      APP_PORT: "8000"
+      APP_PORT: "2152"
       # Ensure your .env MONGO_URI points to your lab Mongo server
     ports:
-      - "8000:8000"
+      - "2152:2152"
     healthcheck:
-      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      test: ["CMD-SHELL","curl -fsS http://127.0.0.1:2152 /health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 10
