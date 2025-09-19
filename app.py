@@ -122,9 +122,34 @@ def send_low_stock_email(item_name: str, after_stock: int, threshold: int):
     )
 
 
+def send_replenish_verification_email(
+    item_name: str, qty_added: int, new_stock: int, interval_desc: str
+):
+    """Send verification email to admin when auto-replenishment occurs."""
+    if not (SMTP_HOST and ADMIN_EMAIL):
+        return
+
+    now = datetime.utcnow()
+    subj = f"[Stockroom] AUTO-REPLENISH: {item_name} - Please Verify Delivery"
+    body = (
+        f"🔄 AUTO-REPLENISHMENT NOTIFICATION\n\n"
+        f"Item: {item_name}\n"
+        f"Quantity Added: +{qty_added}\n"
+        f"New Stock Level: {new_stock}\n"
+        f"Replenishment Schedule: {interval_desc}\n"
+        f"Time (UTC): {now:%Y-%m-%d %H:%M:%S}\n\n"
+        f"⚠️  ACTION REQUIRED:\n"
+        f"Please verify that the delivery actually occurred and adjust stock levels if needed.\n"
+        f"If the delivery did not happen, please manually adjust the stock in the admin panel.\n\n"
+        f"🔗 Admin Panel: http://your-server:2152/admin/items\n\n"
+        f"— MiniVentory Auto-Replenishment System"
+    )
+    _send_email(subj, body, ADMIN_EMAIL)
+
+
 # ---------- Auto-Replenish helpers ----------
-# Allowed frequencies for auto-replenish
-REPLENISH_FREQS = ("never", "daily", "weekly", "monthly")
+# Allowed interval types for auto-replenish
+REPLENISH_INTERVAL_TYPES = ("days", "weeks", "months")
 
 
 def _ensure_item_defaults(item: dict) -> dict:
@@ -132,62 +157,79 @@ def _ensure_item_defaults(item: dict) -> dict:
     item = dict(item)
     item.setdefault("auto_replenish_enabled", False)
     item.setdefault("auto_replenish_qty", 0)
-    item.setdefault("auto_replenish_freq", "never")  # never|daily|weekly|monthly
+    item.setdefault("auto_replenish_interval_type", "days")  # days|weeks|months
+    item.setdefault(
+        "auto_replenish_interval_value", 1
+    )  # e.g., every 1 day, 2 weeks, 3 months
     item.setdefault("auto_replenish_hour_utc", 0)  # 0-23
-    item.setdefault("auto_replenish_weekday", 0)  # 0=Mon..6=Sun (weekly)
-    item.setdefault("auto_replenish_dom", 1)  # 1..28 (monthly day-of-month)
+    item.setdefault(
+        "auto_replenish_next_due", None
+    )  # exact datetime when next replenishment is due
     item.setdefault("auto_replenish_max_stock", None)  # optional int cap; None=no cap
     item.setdefault("last_replenished_utc", None)
     return item
 
 
+def _calculate_next_due(
+    base_time: datetime, interval_type: str, interval_value: int, hour_utc: int
+) -> datetime:
+    """Calculate the next due datetime based on interval settings."""
+    if interval_type == "days":
+        next_due = base_time + timedelta(days=interval_value)
+    elif interval_type == "weeks":
+        next_due = base_time + timedelta(weeks=interval_value)
+    elif interval_type == "months":
+        # Handle month arithmetic carefully
+        month = base_time.month
+        year = base_time.year
+        month += interval_value
+        while month > 12:
+            month -= 12
+            year += 1
+        # Keep same day, but handle month-end edge cases
+        day = min(base_time.day, 28)  # Cap at 28 to avoid month-end issues
+        next_due = base_time.replace(year=year, month=month, day=day)
+    else:
+        # Fallback to daily
+        next_due = base_time + timedelta(days=1)
+
+    # Set the specific hour
+    return next_due.replace(hour=hour_utc, minute=0, second=0, microsecond=0)
+
+
 def _is_replenish_due(now_utc: datetime, item: dict) -> bool:
-    """Idempotent hourly check: true only at the exact configured hour & not already done for period."""
+    """Simple check: replenishment is due if now >= next_due and at the right hour."""
     it = _ensure_item_defaults(item)
     if not it["auto_replenish_enabled"]:
         return False
-    freq = (it.get("auto_replenish_freq") or "never").lower()
-    if freq not in REPLENISH_FREQS or freq == "never":
+
+    interval_type = it.get("auto_replenish_interval_type", "days")
+    if interval_type not in REPLENISH_INTERVAL_TYPES:
         return False
 
+    # Check if we're at the right hour
     hour = int(it.get("auto_replenish_hour_utc", 0))
     if now_utc.hour != hour:
         return False
 
-    last = it.get("last_replenished_utc")
-    # DAY boundary for daily; WEEK boundary for weekly; MONTH boundary for monthly:
-    if freq == "daily":
-        if last and last.date() == now_utc.date():
-            return False
-        return True
+    # Check if next_due is set and if we've reached it
+    next_due = it.get("auto_replenish_next_due")
+    if not next_due:
+        # If no next_due is set, we need to calculate it first
+        return False
 
-    if freq == "weekly":
-        weekday = int(it.get("auto_replenish_weekday", 0))
-        if now_utc.weekday() != weekday:
-            return False
-        # Prevent multiple within same week: require >= 6d23h since last
-        if last and (now_utc - last) < timedelta(days=6, hours=23):
-            return False
-        return True
-
-    if freq == "monthly":
-        dom = max(1, min(28, int(it.get("auto_replenish_dom", 1))))
-        if now_utc.day != dom:
-            return False
-        # Prevent multiple in same month by date match
-        if last and (last.year == now_utc.year and last.month == now_utc.month):
-            return False
-        return True
-
-    return False
+    # Simple check: are we at or past the due time?
+    return now_utc >= next_due
 
 
 def _apply_replenish(item_name: str, qty: int, max_cap: int | None):
-    """Atomic stock increment with optional cap. Logs a SYSTEM auto-replenish entry."""
-    # Read current stock
+    """Atomic stock increment with optional cap. Logs a SYSTEM auto-replenish entry and calculates next due date."""
+    # Read current stock and item details
     doc = items_col.find_one({"name": item_name})
     if not doc:
         return False
+
+    doc = _ensure_item_defaults(doc)
     current = int(doc.get("stock", 0))
     add = int(qty)
     if add <= 0:
@@ -198,25 +240,50 @@ def _apply_replenish(item_name: str, qty: int, max_cap: int | None):
         # enforce cap
         new_stock = min(new_stock, max_cap)
 
+    # Calculate next due date
+    now = datetime.utcnow()
+    interval_type = doc.get("auto_replenish_interval_type", "days")
+    interval_value = int(doc.get("auto_replenish_interval_value", 1))
+    hour_utc = int(doc.get("auto_replenish_hour_utc", 0))
+    next_due = _calculate_next_due(now, interval_type, interval_value, hour_utc)
+
     # atomic set: compare-and-set on stock value to avoid races
     res = items_col.update_one(
         {"name": item_name, "stock": current},
-        {"$set": {"stock": new_stock, "last_replenished_utc": datetime.utcnow()}},
+        {
+            "$set": {
+                "stock": new_stock,
+                "last_replenished_utc": now,
+                "auto_replenish_next_due": next_due,
+            }
+        },
     )
     if res.modified_count != 1:
         return False
 
+    actual_qty_added = new_stock - current
     logs_col.insert_one(
         {
-            "time": datetime.utcnow(),
+            "time": now,
             "user": "SYSTEM",
             "item": item_name,
-            "qty": new_stock - current,
+            "qty": actual_qty_added,
             "note": "auto-replenish",
             "before": current,
             "after": new_stock,
         }
     )
+
+    # Send verification email to admin
+    interval_desc = f"every {interval_value} {interval_type}"
+    try:
+        send_replenish_verification_email(
+            item_name, actual_qty_added, new_stock, interval_desc
+        )
+    except Exception:
+        # Never let email failures block the replenishment process
+        pass
+
     return True
 
 
@@ -549,38 +616,53 @@ def admin_items():
             name = request.form.get("name")
             enabled = request.form.get("enabled") == "on"
             qty = int(request.form.get("qty", "0") or 0)
-            freq = (request.form.get("freq", "never") or "never").lower()
-            hour = int(request.form.get("hour", "0") or 0)
-            weekday = int(request.form.get("weekday", "0") or 0)
-            dom = int(request.form.get("dom", "1") or 1)
+            interval_type = (
+                request.form.get("interval_type", "days") or "days"
+            ).lower()
+            interval_value = int(request.form.get("interval_value", "1") or 1)
+            hour = int(request.form.get("hour", "9") or 9)
             max_cap_raw = request.form.get("max_cap", "").strip()
             max_cap = int(max_cap_raw) if max_cap_raw not in ("", None) else None
 
-            if freq not in REPLENISH_FREQS:
-                flash("Invalid replenish frequency.", "danger")
+            if interval_type not in REPLENISH_INTERVAL_TYPES:
+                flash(
+                    "Invalid interval type. Must be days, weeks, or months.", "danger"
+                )
+            elif interval_value < 1:
+                flash("Interval value must be at least 1.", "danger")
             elif not (0 <= hour <= 23):
                 flash("Hour must be 0–23 (UTC).", "danger")
-            elif freq == "weekly" and not (0 <= weekday <= 6):
-                flash("Weekday must be 0–6 (Mon=0).", "danger")
-            elif freq == "monthly" and not (1 <= dom <= 28):
-                flash("Day-of-month (monthly) must be 1–28.", "danger")
             else:
+                # Calculate initial next_due if enabling replenishment
+                next_due = None
+                if enabled:
+                    now = datetime.utcnow()
+                    next_due = _calculate_next_due(
+                        now, interval_type, interval_value, hour
+                    )
+
                 res = items_col.update_one(
                     {"name": name},
                     {
                         "$set": {
                             "auto_replenish_enabled": enabled,
                             "auto_replenish_qty": qty,
-                            "auto_replenish_freq": freq,
+                            "auto_replenish_interval_type": interval_type,
+                            "auto_replenish_interval_value": interval_value,
                             "auto_replenish_hour_utc": hour,
-                            "auto_replenish_weekday": weekday,
-                            "auto_replenish_dom": dom,
                             "auto_replenish_max_stock": max_cap,
+                            "auto_replenish_next_due": next_due,
                         }
                     },
                 )
                 if res.matched_count == 1:
-                    flash(f"Replenish settings updated for '{name}'.", "success")
+                    if enabled:
+                        flash(
+                            f"Auto-replenish enabled for '{name}': {qty} every {interval_value} {interval_type} at {hour}:00 UTC",
+                            "success",
+                        )
+                    else:
+                        flash(f"Auto-replenish disabled for '{name}'.", "success")
                 else:
                     flash("Item not found.", "danger")
 

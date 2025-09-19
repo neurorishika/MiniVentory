@@ -2,12 +2,15 @@
 {% block content %}
 <h1>Admin Dashboard</h1>
 
-<p>
-  <a class="button" href="{{ url_for('admin_summary') }}">Usage Summary</a>
-  <a class="button" href="{{ url_for('export_stock_csv') }}">Export Stock CSV</a>
-  <a class="button" href="{{ url_for('export_logs_csv') }}">Export Logs CSV</a>
-  <a class="button" href="{{ url_for('admin_settings') }}">Settings</a>
-</p>
+<div class="card">
+  <h3>Quick Actions</h3>
+  <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px;">
+    <a class="button primary" href="{{ url_for('admin_summary') }}">📊 Usage Summary</a>
+    <a class="button" href="{{ url_for('export_stock_csv') }}">📁 Export Stock CSV</a>
+    <a class="button" href="{{ url_for('export_logs_csv') }}">📋 Export Logs CSV</a>
+    <a class="button" href="{{ url_for('admin_settings') }}">⚙️ Settings</a>
+  </div>
+</div>
 
 <section class="grid-2">
   <div class="card">

@@ -77,35 +77,28 @@
       </div>
 
       <div>
-        <label>Frequency</label>
-        <select name="freq">
-          <option value="never">Never</option>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-        </select>
+        <label>Replenish Every</label>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <input type="number" name="interval_value" min="1" value="1" style="width: 80px;">
+          <select name="interval_type">
+            <option value="days">Days</option>
+            <option value="weeks">Weeks</option>
+            <option value="months">Months</option>
+          </select>
+        </div>
+        <div class="muted">Examples: 1 day (daily), 2 weeks (biweekly), 3 months (quarterly)</div>
       </div>
 
       <div>
         <label>Hour (UTC 0–23)</label>
-        <input type="number" name="hour" min="0" max="23" value="0">
-      </div>
-
-      <div>
-        <label>Weekday (0=Mon…6=Sun)</label>
-        <input type="number" name="weekday" min="0" max="6" value="0">
-        <div class="muted">Used only if Weekly</div>
-      </div>
-
-      <div>
-        <label>Day of Month (1–28)</label>
-        <input type="number" name="dom" min="1" max="28" value="1">
-        <div class="muted">Used only if Monthly</div>
+        <input type="number" name="hour" min="0" max="23" value="9">
+        <div class="muted">Time of day for replenishment</div>
       </div>
 
       <div>
         <label>Max Stock Cap (optional)</label>
         <input type="number" name="max_cap" placeholder="leave blank for no cap">
+        <div class="muted">Maximum stock level (won't replenish beyond this)</div>
       </div>
     </div>
     <button class="primary" type="submit">Save Replenish Settings</button>
@@ -116,7 +109,7 @@
 <div class="card">
   <h3>All Items</h3>
   <table class="table">
-    <thead><tr><th>Item</th><th>Stock</th><th>Unit</th><th>Low Thresh</th></tr></thead>
+    <thead><tr><th>Item</th><th>Stock</th><th>Unit</th><th>Low Thresh</th><th>Auto-Replenish</th></tr></thead>
     <tbody>
       {% for i in items %}
       <tr>
@@ -124,6 +117,14 @@
         <td>{{ i.stock }}</td>
         <td>{{ i.unit or "pcs" }}</td>
         <td>{{ i.low_stock_threshold }}</td>
+        <td>
+          {% if i.get('auto_replenish_enabled') %}
+            <span style="color: green;">✓ Every {{ i.get('auto_replenish_interval_value', 1) }} {{ i.get('auto_replenish_interval_type', 'days') }}</span>
+            <br><small>+{{ i.get('auto_replenish_qty', 0) }} at {{ i.get('auto_replenish_hour_utc', 0) }}:00 UTC</small>
+          {% else %}
+            <span style="color: #666;">Disabled</span>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
