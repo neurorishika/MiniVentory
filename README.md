@@ -33,9 +33,9 @@ A lightweight, no-login **consumables checkout** app for labs and makerspaces.
 
 1. Clone or copy this repo into your server/NAS.
 2. Copy the env file:
-   ```bash
+```bash
    cp .env.example .env
-  ````
+```
 
 Edit **.env**:
 
