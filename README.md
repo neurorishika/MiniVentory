@@ -35,7 +35,7 @@ A lightweight, no-login **consumables checkout** app for labs and makerspaces.
 2. Copy the env file:
    ```bash
    cp .env.example .env
-````
+  ````
 
 Edit **.env**:
 
