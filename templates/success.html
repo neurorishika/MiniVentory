@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card success-card">
+  <h2>Logged ✔</h2>
+  <p><strong>{{ user }}</strong> took <strong>{{ qty }}</strong> of <strong>{{ item }}</strong>.</p>
+  <p>Remaining stock: <strong>{{ after_stock }}</strong></p>
+  {% if low_alert %}
+    <p class="warn">⚠ Low stock! At or below threshold ({{ low_threshold }}).</p>
+  {% endif %}
+  <a class="button" href="{{ url_for('index') }}">New Checkout</a>
+</div>
+{% endblock %}

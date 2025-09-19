@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Usage Logs</h1>
+
+<form class="card" method="GET">
+  <div class="grid">
+    <div>
+      <label>User</label>
+      <select name="user">
+        <option value="">(any)</option>
+        {% for u in users %}
+          <option value="{{ u.name }}" {% if q_user==u.name %}selected{% endif %}>{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Item</label>
+      <select name="item">
+        <option value="">(any)</option>
+        {% for i in items %}
+          <option value="{{ i.name }}" {% if q_item==i.name %}selected{% endif %}>{{ i.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <button class="primary" type="submit">Filter</button>
+  <a class="button" href="{{ url_for('export_logs_csv', user=q_user, item=q_item) }}">Export CSV</a>
+</form>
+
+<div class="card">
+  <table class="table">
+    <thead><tr><th>Time (UTC)</th><th>User</th><th>Item</th><th>Qty</th><th>Before→After</th><th>Note</th></tr></thead>
+    <tbody>
+      {% for L in logs %}
+      <tr>
+        <td><code>{{ L.time.strftime("%Y-%m-%d %H:%M:%S") }}</code></td>
+        <td>{{ L.user }}</td>
+        <td>{{ L.item }}</td>
+        <td>{{ L.qty }}</td>
+        <td>{{ L.before }} → {{ L.after }}</td>
+        <td>{{ L.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

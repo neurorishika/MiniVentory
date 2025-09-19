@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+
+<form class="card" method="POST">
+  <h3>Summary Email</h3>
+  <div class="grid">
+    <div>
+      <label>Frequency</label>
+      <select name="summary_frequency">
+        <option value="never"  {% if s.summary_frequency=='never' %}selected{% endif %}>Never</option>
+        <option value="daily"  {% if s.summary_frequency=='daily' %}selected{% endif %}>Daily</option>
+        <option value="weekly" {% if s.summary_frequency=='weekly' %}selected{% endif %}>Weekly</option>
+      </select>
+    </div>
+    <div>
+      <label>Hour (UTC, 0–23)</label>
+      <input type="number" name="summary_hour_utc" min="0" max="23" value="{{ s.summary_hour_utc }}">
+    </div>
+    <div>
+      <label>Weekday (Mon=0…Sun=6)</label>
+      <input type="number" name="summary_weekday" min="0" max="6" value="{{ s.summary_weekday }}">
+      <div class="muted">Used only if frequency = Weekly</div>
+    </div>
+  </div>
+  <button class="primary" type="submit">Save</button>
+</form>
+
+<form class="card" method="POST" action="{{ url_for('email_summary_now') }}">
+  <h3>Send a Test / Manual Summary</h3>
+  <button class="primary" type="submit">Send Now</button>
+</form>
+{% endblock %}

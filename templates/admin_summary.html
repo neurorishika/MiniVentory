@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Usage Summary</h1>
+
+<form class="card" method="GET">
+  <label>Window (days)</label>
+  <input type="number" name="days" value="{{ days }}" min="1" max="180">
+  <button class="primary" type="submit">Refresh</button>
+</form>
+
+<section class="grid-2">
+  <div class="card">
+    <h3>Top Items (last {{ days }} days)</h3>
+    {% if by_item %}
+      <table class="table">
+        <thead><tr><th>Item</th><th>Total Qty</th><th>Events</th></tr></thead>
+        <tbody>
+          {% for r in by_item %}
+          <tr><td>{{ r.item }}</td><td>{{ r.total_qty }}</td><td>{{ r.events }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No usage in this window.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Top Users (last {{ days }} days)</h3>
+    {% if by_user %}
+      <table class="table">
+        <thead><tr><th>User</th><th>Total Qty</th><th>Events</th></tr></thead>
+        <tbody>
+          {% for r in by_user %}
+          <tr><td>{{ r.user }}</td><td>{{ r.total_qty }}</td><td>{{ r.events }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No usage in this window.</p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="card">
+  <h3>Low Stock Now</h3>
+  {% if low_items %}
+    <ul>
+      {% for i in low_items %}
+        <li><strong>{{ i.name }}</strong>: {{ i.stock }} {{ i.unit or "pcs" }} (≤ {{ i.low_stock_threshold }})</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No items at or below threshold.</p>
+  {% endif %}
+</div>
+{% endblock %}

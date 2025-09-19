@@ -1,0 +1,52 @@
+:root{
+  --bg:#0f1220;
+  --card:#171a2b;
+  --muted:#8fa1c3;
+  --text:#e6ecff;
+  --primary:#65d6a5;
+  --primary-ink:#062b1f;
+  --warn:#ffd166;
+  --danger:#ef476f;
+  --line:#252a42;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+a{color:var(--primary);text-decoration:none}
+.container{max-width:980px;margin:48px auto;padding:0 16px}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:#0c0f1c;position:sticky;top:0;z-index:10}
+.topbar .brand{font-weight:700}
+.topbar nav a{margin-left:16px;color:#cfe3ff}
+.footer{padding:32px 16px;color:var(--muted);text-align:center;border-top:1px solid var(--line);margin-top:48px}
+
+h1,h2,h3{margin:8px 0 16px}
+.muted{color:var(--muted);font-size:0.95rem}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:16px 0;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.card.success-card{border-color:var(--primary)}
+.card.danger{border-color:var(--danger)}
+
+label{display:block;margin:8px 0 4px}
+input,select,button{
+  width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);
+  background:#0e1230;color:var(--text);font-size:16px
+}
+input::placeholder{color:#9db0d1}
+button{cursor:pointer}
+button.primary{background:var(--primary);color:var(--primary-ink);font-weight:700;border:none}
+button.danger{background:var(--danger);color:#fff;border:none}
+
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{border-bottom:1px solid var(--line);padding:10px;text-align:left}
+.table th{color:#bcd1ff}
+
+.flash-area{max-width:980px;margin:8px auto;padding:0 16px}
+.flash{padding:12px;border-radius:8px;margin:8px 0}
+.flash.success{background:#0f2a22;color:#90ffd4;border:1px solid #205e4b}
+.flash.info{background:#0e2036;color:#c9e3ff;border:1px solid #244f7f}
+.flash.warning,.flash.warn{background:#2a2510;color:#ffe6a6;border:1px solid #6a5b1f}
+.flash.danger{background:#3a0f1d;color:#ffd0dc;border:1px solid #7a233a}
+
+.grid{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+.grid-2{display:grid;gap:16px;grid-template-columns:1fr 1fr}
+@media (max-width:720px){.grid,.grid-2{grid-template-columns:1fr}}

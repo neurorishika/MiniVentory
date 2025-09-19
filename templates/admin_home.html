@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Admin Dashboard</h1>
+
+<p>
+  <a class="button" href="{{ url_for('admin_summary') }}">Usage Summary</a>
+  <a class="button" href="{{ url_for('export_stock_csv') }}">Export Stock CSV</a>
+  <a class="button" href="{{ url_for('export_logs_csv') }}">Export Logs CSV</a>
+  <a class="button" href="{{ url_for('admin_settings') }}">Settings</a>
+</p>
+
+<section class="grid-2">
+  <div class="card">
+    <h3>Low Stock</h3>
+    {% if low_items %}
+      <ul>
+      {% for i in low_items %}
+        <li><strong>{{ i.name }}</strong>: {{ i.stock }} {{ i.unit or "pcs" }} (≤ {{ i.low_stock_threshold }})</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No items at or below threshold.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Recent Activity</h3>
+    {% if recent %}
+      <ul class="list">
+      {% for L in recent %}
+        <li><code>{{ L.time.strftime("%Y-%m-%d %H:%M") }}</code> — {{ L.user }} took {{ L.qty }} {{ L.item }}</li>
+      {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No logs yet.</p>
+    {% endif %}
+  </div>
+</section>
+
+<div class="card">
+  <h3>Inventory Snapshot</h3>
+  <table class="table">
+    <thead><tr><th>Item</th><th>Stock</th><th>Unit</th><th>Low Thresh</th></tr></thead>
+    <tbody>
+      {% for i in items %}
+      <tr>
+        <td>{{ i.name }}</td>
+        <td>{{ i.stock }}</td>
+        <td>{{ i.unit or "pcs" }}</td>
+        <td>{{ i.low_stock_threshold }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

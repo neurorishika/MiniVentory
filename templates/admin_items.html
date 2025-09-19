@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Manage Items</h1>
+
+<section class="grid-2">
+  <form class="card" method="POST">
+    <h3>Create Item</h3>
+    <input type="hidden" name="action" value="create">
+    <label>Name</label>
+    <input name="name" required>
+    <label>Unit</label>
+    <input name="unit" placeholder="pcs / box / mL" value="pcs">
+    <label>Initial Stock</label>
+    <input name="stock" type="number" value="0">
+    <label>Low-Stock Threshold</label>
+    <input name="low_stock_threshold" type="number" value="0">
+    <button class="primary" type="submit">Create</button>
+  </form>
+
+  <form class="card" method="POST">
+    <h3>Adjust Stock</h3>
+    <input type="hidden" name="action" value="adjust">
+    <label>Item</label>
+    <select name="name">
+      {% for i in items %}<option>{{ i.name }}</option>{% endfor %}
+    </select>
+    <label>Delta (e.g., +100 or -5)</label>
+    <input type="number" name="delta" value="0">
+    <button class="primary" type="submit">Apply</button>
+  </form>
+</section>
+
+<section class="grid-2">
+  <form class="card" method="POST">
+    <h3>Update Low-Stock Threshold</h3>
+    <input type="hidden" name="action" value="update_threshold">
+    <label>Item</label>
+    <select name="name">
+      {% for i in items %}<option>{{ i.name }}</option>{% endfor %}
+    </select>
+    <label>New Threshold</label>
+    <input type="number" name="low_stock_threshold" value="0">
+    <button class="primary" type="submit">Update</button>
+  </form>
+
+  <form class="card danger" method="POST" onsubmit="return confirm('Delete item and its counts?');">
+    <h3>Delete Item</h3>
+    <input type="hidden" name="action" value="delete">
+    <label>Item</label>
+    <select name="name">
+      {% for i in items %}<option>{{ i.name }}</option>{% endfor %}
+    </select>
+    <button class="danger" type="submit">Delete</button>
+  </form>
+</section>
+
+<section class="card">
+  <h3>Auto-Replenish (per item)</h3>
+  <form method="POST">
+    <input type="hidden" name="action" value="update_replenish">
+    <div class="grid">
+      <div>
+        <label>Item</label>
+        <select name="name" required>
+          {% for i in items %}<option value="{{ i.name }}">{{ i.name }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label>Enable</label>
+        <input type="checkbox" name="enabled">
+      </div>
+
+      <div>
+        <label>Quantity to Add</label>
+        <input type="number" name="qty" min="0" value="0" required>
+      </div>
+
+      <div>
+        <label>Frequency</label>
+        <select name="freq">
+          <option value="never">Never</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+        </select>
+      </div>
+
+      <div>
+        <label>Hour (UTC 0–23)</label>
+        <input type="number" name="hour" min="0" max="23" value="0">
+      </div>
+
+      <div>
+        <label>Weekday (0=Mon…6=Sun)</label>
+        <input type="number" name="weekday" min="0" max="6" value="0">
+        <div class="muted">Used only if Weekly</div>
+      </div>
+
+      <div>
+        <label>Day of Month (1–28)</label>
+        <input type="number" name="dom" min="1" max="28" value="1">
+        <div class="muted">Used only if Monthly</div>
+      </div>
+
+      <div>
+        <label>Max Stock Cap (optional)</label>
+        <input type="number" name="max_cap" placeholder="leave blank for no cap">
+      </div>
+    </div>
+    <button class="primary" type="submit">Save Replenish Settings</button>
+  </form>
+</section>
+
+
+<div class="card">
+  <h3>All Items</h3>
+  <table class="table">
+    <thead><tr><th>Item</th><th>Stock</th><th>Unit</th><th>Low Thresh</th></tr></thead>
+    <tbody>
+      {% for i in items %}
+      <tr>
+        <td>{{ i.name }}</td>
+        <td>{{ i.stock }}</td>
+        <td>{{ i.unit or "pcs" }}</td>
+        <td>{{ i.low_stock_threshold }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

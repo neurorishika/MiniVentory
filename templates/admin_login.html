@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Admin Access</h1>
+<form class="card" method="POST">
+  <label for="pin">Admin PIN</label>
+  <input type="password" name="pin" id="pin" inputmode="numeric" autofocus required>
+  <button class="primary" type="submit">Enter</button>
+</form>
+{% endblock %}

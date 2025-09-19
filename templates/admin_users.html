@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Manage Users</h1>
+
+<section class="grid-2">
+  <form class="card" method="POST">
+    <h3>Create User</h3>
+    <input type="hidden" name="action" value="create">
+    <label>Name</label>
+    <input name="name" required>
+    <label>Tag / Notes (optional)</label>
+    <input name="tag">
+    <button class="primary" type="submit">Create</button>
+  </form>
+
+  <form class="card" method="POST">
+    <h3>Toggle Active</h3>
+    <input type="hidden" name="action" value="toggle">
+    <label>User</label>
+    <select name="name">
+      {% for u in users %}<option>{{ u.name }}</option>{% endfor %}
+    </select>
+    <button class="primary" type="submit">Toggle</button>
+  </form>
+</section>
+
+<form class="card danger" method="POST" onsubmit="return confirm('Delete this user?');">
+  <h3>Delete User</h3>
+  <input type="hidden" name="action" value="delete">
+  <label>User</label>
+  <select name="name">
+    {% for u in users %}<option>{{ u.name }}</option>{% endfor %}
+  </select>
+  <button class="danger" type="submit">Delete</button>
+</form>
+
+<div class="card">
+  <h3>All Users</h3>
+  <table class="table">
+    <thead><tr><th>Name</th><th>Active</th><th>Tag</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.name }}</td>
+        <td>{{ "Yes" if u.is_active else "No" }}</td>
+        <td>{{ u.tag or "" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{{ title or "Stockroom" }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🧪 MiniVentory Stockroom System</div>
+    <nav>
+      <a href="{{ url_for('index') }}">Checkout</a>
+      {% if session.get('is_admin') %}
+        <a href="{{ url_for('admin_home') }}">Admin</a>
+        <a href="{{ url_for('admin_items') }}">Items</a>
+        <a href="{{ url_for('admin_users') }}">Users</a>
+        <a href="{{ url_for('admin_logs') }}">Logs</a>
+        <a href="{{ url_for('admin_settings') }}">Settings</a>
+        <a href="{{ url_for('admin_logout') }}">Logout</a>
+      {% else %}
+        <a href="{{ url_for('admin_login') }}">Admin</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-area">
+        {% for cat, msg in messages %}
+          <div class="flash {{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <small>MiniVentory Kiosk • Copyright © {{ datetime.utcnow().year }}, Rishika Mohanta</small>
+  </footer>
+</body>
+</html>

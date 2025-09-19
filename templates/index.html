@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Take an Item</h1>
+
+<form class="card" action="{{ url_for('checkout') }}" method="POST">
+  <div class="grid">
+    <div>
+      <label for="user">Your Name</label>
+      <select name="user" id="user" required>
+        <option value="" disabled selected>Select your name</option>
+        {% for u in users %}
+          <option value="{{ u.name }}">{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label for="item">Item</label>
+      <select name="item" id="item" required>
+        <option value="" disabled selected>Select an item</option>
+        {% for i in items %}
+          <option value="{{ i.name }}">{{ i.name }} — {{ i.stock }} {{ i.unit or "pcs" }} left</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label for="quantity">Quantity</label>
+      <input type="number" min="1" name="quantity" id="quantity" placeholder="e.g., 10" required>
+    </div>
+
+    <div>
+      <label for="note">Note (optional)</label>
+      <input type="text" name="note" id="note" placeholder="Experiment / reason">
+    </div>
+  </div>
+
+  <button class="primary" type="submit">Log Checkout</button>
+</form>
+
+<div class="card">
+  <h3>Current Inventory Overview</h3>
+  <table class="table">
+    <thead><tr><th>Item</th><th>Stock</th><th>Unit</th><th>Low Thresh</th></tr></thead>
+    <tbody>
+      {% for i in items %}
+      <tr>
+        <td>{{ i.name }}</td>
+        <td>{{ i.stock }}</td>
+        <td>{{ i.unit or "pcs" }}</td>
+        <td>{{ i.low_stock_threshold }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muted">Check what’s available before you take items.</p>
+</div>
+
+<div class="muted">Tip: Add this page to your tablet’s home screen and enable full-screen/kiosk mode.</div>
+{% endblock %}
