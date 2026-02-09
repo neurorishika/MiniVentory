@@ -543,6 +543,65 @@ def checkout():
         after_stock=after_stock,
         low_alert=low_alert,
         low_threshold=low,
+        action="checkout",
+    )
+
+
+@app.route("/dropoff", methods=["POST"])
+def dropoff():
+    user = request.form.get("user")
+    item_name = request.form.get("item")
+    qty = request.form.get("quantity")
+    note = request.form.get("note", "")
+
+    try:
+        qty = int(qty)
+        if qty <= 0:
+            raise ValueError
+    except Exception:
+        flash("Quantity must be a positive integer.", "danger")
+        return redirect(url_for("index"))
+
+    user_doc = users_col.find_one({"name": user, "is_active": True})
+    item_doc = items_col.find_one({"name": item_name})
+    if not user_doc:
+        flash("Selected user is not valid.", "danger")
+        return redirect(url_for("index"))
+    if not item_doc:
+        flash("Selected item is not valid.", "danger")
+        return redirect(url_for("index"))
+
+    before_stock = int(item_doc.get("stock", 0))
+    after_stock = before_stock + qty
+    # atomic compare-and-set
+    result = items_col.update_one(
+        {"name": item_name, "stock": before_stock}, {"$set": {"stock": after_stock}}
+    )
+    if result.modified_count != 1:
+        flash("Stock changed while you were dropping off. Please try again.", "warning")
+        return redirect(url_for("index"))
+
+    logs_col.insert_one(
+        {
+            "time": datetime.utcnow(),
+            "user": user,
+            "item": item_name,
+            "qty": qty,
+            "note": note.strip(),
+            "before": before_stock,
+            "after": after_stock,
+        }
+    )
+
+    return render_template(
+        "success.html",
+        user=user,
+        item=item_name,
+        qty=qty,
+        after_stock=after_stock,
+        low_alert=False,
+        low_threshold=0,
+        action="dropoff",
     )
 
 

@@ -2,11 +2,16 @@
 {% block content %}
 <div class="card success-card">
   <h2>Logged ✔</h2>
-  <p><strong>{{ user }}</strong> took <strong>{{ qty }}</strong> of <strong>{{ item }}</strong>.</p>
-  <p>Remaining stock: <strong>{{ after_stock }}</strong></p>
-  {% if low_alert %}
-    <p class="warn">⚠ Low stock! At or below threshold ({{ low_threshold }}).</p>
+  {% if action == 'dropoff' %}
+    <p><strong>{{ user }}</strong> returned <strong>{{ qty }}</strong> of <strong>{{ item }}</strong>.</p>
+    <p>New stock level: <strong>{{ after_stock }}</strong></p>
+  {% else %}
+    <p><strong>{{ user }}</strong> took <strong>{{ qty }}</strong> of <strong>{{ item }}</strong>.</p>
+    <p>Remaining stock: <strong>{{ after_stock }}</strong></p>
+    {% if low_alert %}
+      <p class="warn">⚠ Low stock! At or below threshold ({{ low_threshold }}).</p>
+    {% endif %}
   {% endif %}
-  <a class="button" href="{{ url_for('index') }}">New Checkout</a>
+  <a class="button" href="{{ url_for('index') }}">Back to Home</a>
 </div>
 {% endblock %}
