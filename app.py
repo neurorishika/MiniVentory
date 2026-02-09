@@ -989,6 +989,61 @@ def health():
     return {"ok": True, "time": datetime.utcnow().isoformat() + "Z"}, 200
 
 
+# ----- Debug endpoint for auto-replenish status -----
+@app.route("/tasks/replenish/debug", methods=["GET"])
+def tasks_replenish_debug():
+    """Debug endpoint to check auto-replenish status (requires auth token)."""
+    token = request.args.get("token", "")
+    if not (CRON_TOKEN and token == CRON_TOKEN):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    now = datetime.utcnow()
+    items_status = []
+
+    cursor = items_col.find({"auto_replenish_enabled": True})
+    for it in cursor:
+        it = _ensure_item_defaults(it)
+        is_due = _is_replenish_due(now, it)
+
+        items_status.append(
+            {
+                "name": it["name"],
+                "current_stock": it.get("stock", 0),
+                "auto_replenish_enabled": it.get("auto_replenish_enabled", False),
+                "auto_replenish_qty": it.get("auto_replenish_qty", 0),
+                "auto_replenish_interval_type": it.get(
+                    "auto_replenish_interval_type", "days"
+                ),
+                "auto_replenish_interval_value": it.get(
+                    "auto_replenish_interval_value", 1
+                ),
+                "auto_replenish_hour_utc": it.get("auto_replenish_hour_utc", 0),
+                "auto_replenish_next_due": (
+                    it.get("auto_replenish_next_due").isoformat()
+                    if it.get("auto_replenish_next_due")
+                    else None
+                ),
+                "auto_replenish_max_stock": it.get("auto_replenish_max_stock"),
+                "last_replenished_utc": (
+                    it.get("last_replenished_utc").isoformat()
+                    if it.get("last_replenished_utc")
+                    else None
+                ),
+                "is_due_now": is_due,
+                "current_hour_utc": now.hour,
+            }
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "current_time_utc": now.isoformat(),
+            "current_hour_utc": now.hour,
+            "items_with_auto_replenish": items_status,
+        }
+    )
+
+
 if __name__ == "__main__":
     # host=0.0.0.0 so other devices on LAN (tablet) can reach it
     app.run(host="0.0.0.0", port=2152, debug=True)
