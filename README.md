@@ -1,4 +1,4 @@
-# Stockroom Kiosk (Flask + Mongo)
+# MiniVentory Kiosk (Flask + Mongo)
 
 A lightweight, no-login **consumables checkout** app for labs and makerspaces.
 - Tablet-friendly checkout UI (users pick their name, item, quantity, note)
