@@ -35,10 +35,11 @@
 | 📊 **Usage Summaries** | Configurable daily/weekly email digests; top items & users over any time window |
 | 🔄 **Auto-Replenish** | Per-item scheduled restocking (daily/weekly/monthly) with optional max-stock cap |
 | 📤 **CSV Exports** | One-click export for transaction logs and full stock snapshots |
-| 🛡️ **Secure Tasks** | `CRON_TOKEN`-protected endpoints; atomic, idempotent stock updates |
+| � **Internal Scheduler** | APScheduler fires summary and replenish tasks every hour inside the container — no external cron needed |
+| 🛡️ **Secure Tasks** | `CRON_TOKEN`-protected HTTP endpoints for manual or external triggers; atomic, idempotent stock updates |
 | 🐳 **Docker-First** | Single compose file — app, replica-set Mongo, and automated backups |
 
-**How scheduled tasks work** — the app has no internal scheduler. Two HTTP endpoints (`/tasks/summary` and `/tasks/replenish`) are secured with a `CRON_TOKEN` and pinged on a schedule from the host (crontab, Synology Task Scheduler, Portainer Schedules, or Cloud Scheduler). This keeps the app stateless and easy to reason about.
+**How scheduled tasks work** — the app runs an internal `APScheduler` background scheduler that fires the summary and auto-replenish tasks every hour. A MongoDB TTL collection acts as a distributed mutex so only one Gunicorn worker executes each job tick, preventing duplicate emails or stock changes. The HTTP endpoints `/tasks/summary` and `/tasks/replenish` (secured with `CRON_TOKEN`) remain available as a manual trigger or belt-and-suspenders fallback, but no external cron is required.
 
 ---
 
@@ -73,12 +74,12 @@ cp .env.example .env
 | `SECRET_KEY` | Flask session key — generate a long random string |
 | `ADMIN_PIN` | Numeric PIN for the admin UI |
 | `MONGO_DB` | Database name, e.g. `lab_inventory` |
-| `CRON_TOKEN` | Shared secret for `/tasks/*` endpoints |
 
 **Optional but recommended:**
 
 | Key | Purpose |
 |-----|---------|
+| `CRON_TOKEN` | Shared secret protecting the `/tasks/*` HTTP endpoints — set this if you want to trigger tasks manually or use an external ping as a fallback |
 | `SMTP_HOST/PORT/USERNAME/PASSWORD` | Outbound email for alerts and summaries |
 | `SMTP_USE_SSL` | `true` or `false` |
 | `SMTP_FROM`, `ADMIN_EMAIL` | Sender address and alert recipient |
@@ -115,24 +116,226 @@ Update the `image:` line in `docker-compose.yml` to match your Docker Hub userna
 
 ## ☁️ Step 3 — Set up off-site backups (run once on the server)
 
-The backup service uses rclone to push archives off-server. Run the interactive setup script on the host to generate `scripts/rclone.conf` (gitignored — credentials never go into source control):
+The `mongo-backup` container dumps MongoDB every 6 hours, compresses the archive, and can push it to any rclone-supported destination. All configuration lives in two env vars: `RCLONE_REMOTE` (where to push) and `HEALTHCHECK_UUID` (dead-man's switch). Both are optional — if omitted, backups still run and rotate locally.
+
+> **This step is required regardless of how you deploy** (Portainer, SSH, AWS, etc.). The backup container always needs `scripts/mongo_backup.sh` and `scripts/rclone.conf` present on the host at the paths bound into the container. For Portainer deployments see the [host prep instructions](#portainer-host-prep) below before running the stack.
+
+### 3a — Install rclone on the host
 
 ```bash
-# Install rclone on the host if not already present
 curl https://rclone.org/install.sh | sudo bash   # Linux / Synology via SSH
 # or: brew install rclone  (macOS)
+```
 
-bash scripts/setup_rclone.sh   # choose S3, Backblaze B2, Google Drive, or other
+### 3b — Configure a remote destination
 
-# Verify the connection
+Run the interactive helper — it writes `scripts/rclone.conf` (gitignored, never committed):
+
+```bash
+bash scripts/setup_rclone.sh
+```
+
+Or configure manually using one of the recipes below.
+
+---
+
+<details>
+<summary><b>Amazon S3</b></summary>
+
+Create an IAM user with `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, and `s3:ListBucket` on your target bucket. Generate an access key for that user.
+
+```bash
+cat > scripts/rclone.conf <<EOF
+[remote]
+type = s3
+provider = AWS
+access_key_id = AKIAIOSFODNN7EXAMPLE
+secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+region = us-east-1
+EOF
+```
+
+```bash
+# .env
+RCLONE_REMOTE=remote:your-bucket-name/miniventory-backups
+```
+
+</details>
+
+<details>
+<summary><b>Backblaze B2</b></summary>
+
+**Option A — B2 native API** (cheaper egress within Cloudflare network):
+
+Go to Backblaze → **App Keys** → **Add a New Application Key**. Grant read/write access to your bucket.
+
+```bash
+cat > scripts/rclone.conf <<EOF
+[remote]
+type = b2
+account = YOUR_ACCOUNT_ID
+key = YOUR_APPLICATION_KEY
+EOF
+```
+
+```bash
+# .env
+RCLONE_REMOTE=remote:your-bucket-name/miniventory-backups
+```
+
+**Option B — B2 S3-compatible API** (works with S3 tooling):
+
+Enable the S3-compatible endpoint in your Backblaze bucket settings. Use the S3 endpoint `s3.us-west-004.backblazeb2.com` (region varies by bucket location).
+
+```bash
+cat > scripts/rclone.conf <<EOF
+[remote]
+type = s3
+provider = Other
+access_key_id = YOUR_KEY_ID
+secret_access_key = YOUR_APPLICATION_KEY
+endpoint = s3.us-west-004.backblazeb2.com
+EOF
+```
+
+```bash
+# .env
+RCLONE_REMOTE=remote:your-bucket-name/miniventory-backups
+```
+
+</details>
+
+<details>
+<summary><b>Another Synology NAS (SFTP)</b></summary>
+
+On the **destination** NAS:
+1. Control Panel → **File Services → SFTP** → enable SFTP
+2. Create a dedicated user (e.g. `backup-writer`) with write access to a shared folder, e.g. `/volume1/backups/miniventory`
+3. Note the NAS IP and SFTP port (default 22)
+
+On the **source** machine (where the stack runs):
+
+```bash
+# Generate an SSH key pair for passwordless auth
+ssh-keygen -t ed25519 -f scripts/backup_id_ed25519 -N ""
+# Copy the public key to the destination NAS
+ssh-copy-id -i scripts/backup_id_ed25519.pub -p 22 backup-writer@<destination-nas-ip>
+```
+
+> Add `scripts/backup_id_ed25519` and `scripts/backup_id_ed25519.pub` to `.gitignore` — they are credentials.
+
+```bash
+cat > scripts/rclone.conf <<EOF
+[remote]
+type = sftp
+host = <destination-nas-ip>
+user = backup-writer
+port = 22
+key_file = /config/rclone/backup_id_ed25519
+EOF
+```
+
+Mount the key into the backup container by adding to `docker-compose.yml` under `mongo-backup → volumes`:
+
+```yaml
+- ./scripts/backup_id_ed25519:/config/rclone/backup_id_ed25519:ro
+```
+
+```bash
+# .env
+RCLONE_REMOTE=remote:/volume1/backups/miniventory
+```
+
+</details>
+
+<details>
+<summary><b>Wasabi / MinIO / other S3-compatible stores</b></summary>
+
+Any S3-compatible store works by setting `provider = Other` and supplying the endpoint URL.
+
+**Wasabi example** (no egress fees):
+
+```bash
+cat > scripts/rclone.conf <<EOF
+[remote]
+type = s3
+provider = Wasabi
+access_key_id = YOUR_WASABI_KEY
+secret_access_key = YOUR_WASABI_SECRET
+endpoint = s3.wasabisys.com
+EOF
+```
+
+**MinIO example** (self-hosted):
+
+```bash
+cat > scripts/rclone.conf <<EOF
+[remote]
+type = s3
+provider = Minio
+access_key_id = YOUR_MINIO_ACCESS_KEY
+secret_access_key = YOUR_MINIO_SECRET_KEY
+endpoint = http://<minio-host>:9000
+EOF
+```
+
+```bash
+# .env — bucket must already exist
+RCLONE_REMOTE=remote:your-bucket/miniventory-backups
+```
+
+</details>
+
+<details>
+<summary><b>Google Drive</b></summary>
+
+Run the interactive rclone config — it opens a browser for OAuth:
+
+```bash
+rclone config --config scripts/rclone.conf
+# Choose: New remote → name it "remote" → type "drive" → follow OAuth prompts
+```
+
+```bash
+# .env — use the folder path inside your Drive
+RCLONE_REMOTE=remote:miniventory-backups
+```
+
+</details>
+
+---
+
+**Verify the connection before starting the stack:**
+
+```bash
 rclone ls remote: --config scripts/rclone.conf
+# Should list bucket/folder contents without error
+```
 
-# Add the remote path to .env
+Add the remote path to `.env`:
+
+```bash
 echo 'RCLONE_REMOTE=remote:your-bucket/miniventory-backups' >> .env
+```
+
+### 3c — Set up healthchecks.io monitoring (optional but recommended)
+
+healthchecks.io sends you an alert if a backup run is ever missed or takes too long. It's free for up to 20 checks.
+
+1. Sign up at [healthchecks.io](https://healthchecks.io) (or self-host)
+2. Click **+ New Check** → set the name to `MiniVentory Backups`
+3. Set **Period** to `6 hours` and **Grace** to `1 hour`
+4. Under **Integrations**, add your email (or Slack/PagerDuty/etc.)
+5. Copy the ping URL — it looks like `https://hc-ping.com/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+6. The UUID is the last path segment:
+
+```bash
 echo 'HEALTHCHECK_UUID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx' >> .env
 ```
 
-If you skip this step, backups still run locally — `RCLONE_REMOTE` is optional.
+The backup script pings that URL after every successful run. If no ping arrives within `Period + Grace`, healthchecks.io fires your alert.
+
+> **Self-hosted alternative:** if you run your own [Healthchecks](https://github.com/healthchecks/healthchecks) instance, replace the ping URL base in `scripts/mongo_backup.sh` — change `https://hc-ping.com/` to your instance's URL.
 
 ---
 
@@ -158,30 +361,88 @@ Access at `https://<host-ip>:9443`.
 
 </details>
 
+<details>
+<summary id="portainer-host-prep"><b>Prepare the host before deploying (SSH — run once)</b></summary>
+
+Portainer's web editor only manages the compose YAML — it does not clone the repo. The backup script and rclone config must be placed on the host manually via SSH before the stack starts.
+
+```bash
+ssh admin@<host-ip>
+
+# 1. Create the scripts directory at a stable absolute path
+mkdir -p /volume1/docker/miniventory/scripts
+cd /volume1/docker/miniventory
+
+# 2. Download the backup script from the repo
+curl -fsSL https://raw.githubusercontent.com/neurorishika/MiniVentory/main/scripts/mongo_backup.sh \
+  -o scripts/mongo_backup.sh
+chmod +x scripts/mongo_backup.sh
+
+# 3. Install rclone (if not already present)
+curl https://rclone.org/install.sh | sudo bash
+
+# 4. Download and run the interactive rclone setup helper
+curl -fsSL https://raw.githubusercontent.com/neurorishika/MiniVentory/main/scripts/setup_rclone.sh \
+  -o scripts/setup_rclone.sh
+chmod +x scripts/setup_rclone.sh
+bash scripts/setup_rclone.sh   # writes scripts/rclone.conf
+
+# 5. Verify the connection
+rclone ls remote: --config scripts/rclone.conf
+```
+
+If you chose **SFTP (another NAS)** in the setup helper, also download the generated key:
+```bash
+# The key was generated at scripts/backup_id_ed25519 — it stays on this host,
+# never upload it anywhere. The setup helper already told you to run ssh-copy-id.
+```
+
+Once the scripts directory is ready, proceed to deploy the stack below.
+
+</details>
+
 **Create the stack:**
 
 1. Portainer → **Stacks** → **+ Add stack** → name it `miniventory`
-2. Select **Web editor** and paste the full contents of `docker-compose.yml`
-3. Because Portainer resolves paths relative to the host, replace the two relative bind-mount paths:
+2. Select **Web editor** and paste the full contents of `docker-compose.yml`, then make these two edits before deploying:
+
+   **a) Remove the `build:` line** from the `app` service — Portainer's Web editor has no build context, so building will fail. The published image is pulled directly:
+   ```yaml
+   # remove this line:
+   build: .
+   # keep:
+   image: docker.io/neurorishika/miniventory:latest
+   ```
+
+   **b) Replace `env_file: - .env` with `env_file: - stack.env`** in the `app` service — Portainer creates the env file as `stack.env`, not `.env`:
+   ```yaml
+   # change:
+   env_file:
+     - .env
+   # to:
+   env_file:
+     - stack.env
+   ```
+
+   **c) Replace the two relative bind-mount paths** with the absolute paths you created above:
    ```yaml
    # change:
    - ./scripts/mongo_backup.sh:/usr/local/bin/mongo_backup.sh:ro
    - ./scripts/rclone.conf:/config/rclone/rclone.conf:ro
-   # to absolute paths, e.g. on Synology:
+   # to (adjust base path if you used a different location):
    - /volume1/docker/miniventory/scripts/mongo_backup.sh:/usr/local/bin/mongo_backup.sh:ro
    - /volume1/docker/miniventory/scripts/rclone.conf:/config/rclone/rclone.conf:ro
    ```
-4. Scroll to **Environment variables** and add every key from your `.env` file
-5. Click **Deploy the stack**
+   If you configured SFTP backups, also add:
+   ```yaml
+   - /volume1/docker/miniventory/scripts/backup_id_ed25519:/config/rclone/backup_id_ed25519:ro
+   ```
+3. Scroll to **Environment variables** and add every key from your `.env` — at minimum `SECRET_KEY`, `ADMIN_PIN`, `MONGO_DB`; add `RCLONE_REMOTE` and `HEALTHCHECK_UUID` if configured in Step 3
+4. Click **Deploy the stack**
 
 The `mongo-init` service runs once, initialises the replica set, and exits. Verify: **Containers** → `miniventory_mongo_1` → **Console** → `mongosh --eval "rs.status()"` — you should see one `PRIMARY` and one `SECONDARY`.
 
-**Cron pings** via Portainer → **Schedules** (CE 2.19+), or on the host:
-
-```cron
-0  * * * * curl -fsS "http://127.0.0.1:2152/tasks/summary?token=YOUR_CRON_TOKEN"  >/dev/null 2>&1
-5  * * * * curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
-```
+> **No external cron needed.** The app schedules summary and replenish tasks internally. The `/tasks/*` endpoints are still available as a manual trigger — if you want an additional external ping via Portainer → **Schedules** (CE 2.19+) you can add one, but it is not required.
 
 **Update:** push a new image, then Portainer → **Stacks** → `miniventory` → **Update the stack**, or use **Recreate** on the `app` container with **Pull latest image** checked.
 
@@ -216,12 +477,7 @@ Restrict port 2152 to LAN; expose only 443 via the reverse proxy.
 
 </details>
 
-**Cron** — Control Panel → Task Scheduler → Create → User-defined script:
-
-| Task | Schedule | Command |
-|------|----------|---------|
-| Summary | Every hour | `curl -fsS "http://127.0.0.1:2152/tasks/summary?token=YOUR_CRON_TOKEN" \|\| true` |
-| Replenish | Every hour (min 5) | `curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" \|\| true` |
+> **No external cron needed.** Scheduled tasks run inside the container. If you previously set up Task Scheduler entries for the `/tasks/*` endpoints you can remove them — or leave them as a fallback (the endpoints are idempotent).
 
 **Update:**
 ```bash
@@ -267,11 +523,11 @@ docker compose -p miniventory up -d
 
 **HTTPS** — `sudo certbot --nginx -d inventory.yourlab.com`
 
-**Cron** — `crontab -e`:
-```cron
-0  * * * * curl -fsS "http://127.0.0.1:2152/tasks/summary?token=YOUR_CRON_TOKEN"  >/dev/null 2>&1
-5  * * * * curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
-```
+> **No external cron needed.** Scheduled tasks run inside the container. If you want an additional external ping as a fallback, add to `crontab -e`:
+> ```cron
+> 0  * * * * curl -fsS "http://127.0.0.1:2152/tasks/summary?token=YOUR_CRON_TOKEN"  >/dev/null 2>&1
+> 5  * * * * curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
+> ```
 
 **Secrets** — store `.env` values in AWS Secrets Manager instead of a plain file:
 ```bash
@@ -313,16 +569,19 @@ gcloud run deploy miniventory \
   --set-env-vars MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/,MONGO_DB=lab_inventory \
   --set-secrets SECRET_KEY=miniventory-secret-key:latest,ADMIN_PIN=miniventory-admin-pin:latest,CRON_TOKEN=miniventory-cron-token:latest
 
-# Cron via Cloud Scheduler
-gcloud scheduler jobs create http miniventory-summary \
-  --schedule="0 * * * *" --location=us-central1 \
-  --uri="https://YOUR_CLOUD_RUN_URL/tasks/summary?token=YOUR_CRON_TOKEN"
-gcloud scheduler jobs create http miniventory-replenish \
-  --schedule="5 * * * *" --location=us-central1 \
-  --uri="https://YOUR_CLOUD_RUN_URL/tasks/replenish?token=YOUR_CRON_TOKEN"
 ```
 
 > Use `--min-instances 1` to avoid cold-start delays on the first request.
+>
+> **No external scheduler needed.** The app's internal APScheduler handles summary and replenish tasks. If you want an optional external fallback via Cloud Scheduler:
+> ```bash
+> gcloud scheduler jobs create http miniventory-summary \
+>   --schedule="0 * * * *" --location=us-central1 \
+>   --uri="https://YOUR_CLOUD_RUN_URL/tasks/summary?token=YOUR_CRON_TOKEN"
+> gcloud scheduler jobs create http miniventory-replenish \
+>   --schedule="5 * * * *" --location=us-central1 \
+>   --uri="https://YOUR_CLOUD_RUN_URL/tasks/replenish?token=YOUR_CRON_TOKEN"
+> ```
 
 </details>
 
@@ -379,7 +638,7 @@ docker exec -it miniventory-mongo-1 mongosh --eval "rs.status()"
 
 - [ ] Run on LAN only; gate external access with a firewall
 - [ ] Use a reverse proxy (nginx / Synology Login Portal) with TLS — never expose port 2152 directly to the internet
-- [ ] Set a strong random `SECRET_KEY`, a non-trivial `ADMIN_PIN`, and a long `CRON_TOKEN`
+- [ ] Set a strong random `SECRET_KEY` and a non-trivial `ADMIN_PIN`; if you expose the `/tasks/*` endpoints set a long `CRON_TOKEN`
 - [ ] Store secrets in AWS Secrets Manager / GCP Secret Manager / Portainer Secrets — not in a plain `.env` on disk in production
 - [ ] Keep Mongo non-public; do not expose port 27017 outside the Docker network
 - [ ] Regularly update container images: `docker compose pull && docker compose up -d`
@@ -409,7 +668,8 @@ docker compose -p miniventory logs -f mongo-backup
 |---------|-----|
 | Mongo unreachable at startup | Index creation is skipped with a warning and retried on next deploy; app still serves requests |
 | Email not sending | Verify `SMTP_HOST`, port, `SMTP_USE_SSL`, credentials, and outbound firewall |
-| Cron pings doing nothing | Confirm `CRON_TOKEN` in `.env` matches the token in the curl command; check scheduler logs |
+| Scheduled tasks not running | Check app logs for `miniventory.scheduler` entries: `docker compose -p miniventory logs app | grep scheduler`. Confirm MongoDB is reachable (the lock collection requires a write). |
+| Manual task endpoint does nothing | Confirm `CRON_TOKEN` in `.env` matches the token in the curl command |
 | Replica set not initialising | Check init container logs: `docker logs miniventory-mongo-init-1` |
 
 ---
