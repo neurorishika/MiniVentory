@@ -58,11 +58,15 @@ settings_col = db[
     "settings"
 ]  # single doc: { _id:"app", summary_frequency, summary_hour_utc, summary_weekday, last_summary_sent_utc }
 
-# helpful indexes
-items_col.create_index([("name", ASCENDING)], unique=True)
-users_col.create_index([("name", ASCENDING)], unique=True)
-logs_col.create_index([("time", DESCENDING)])
-alerts_col.create_index([("item", ASCENDING)], unique=True)
+# helpful indexes (best-effort at startup; recreated on first write if missed)
+try:
+    items_col.create_index([("name", ASCENDING)], unique=True)
+    users_col.create_index([("name", ASCENDING)], unique=True)
+    logs_col.create_index([("time", DESCENDING)])
+    alerts_col.create_index([("item", ASCENDING)], unique=True)
+except Exception as _idx_err:
+    import logging as _logging
+    _logging.getLogger(__name__).warning("MongoDB index creation skipped at startup: %s", _idx_err)
 
 
 # ---------- Email helpers ----------

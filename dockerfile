@@ -39,3 +39,7 @@ HEALTHCHECK --interval=30s --timeout=3s --retries=5 \
 
 ENTRYPOINT ["/usr/bin/tini","--"]
 CMD ["gunicorn","-w","2","--threads","4","--timeout","30","-b","0.0.0.0:2152","app:app"]
+
+# Build and push to Docker Hub:
+#   docker build -t YOUR_DOCKERHUB_USERNAME/miniventory:latest .
+#   docker push YOUR_DOCKERHUB_USERNAME/miniventory:latest
