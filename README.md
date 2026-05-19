@@ -1,21 +1,48 @@
-# MiniVentory
+<div align="center">
 
-A lightweight **consumables checkout kiosk** for labs and makerspaces. Users check out items from a tablet-friendly form; admins manage inventory, users, and settings behind a PIN gate. Everything runs in Docker — one compose file brings up the app, a two-node MongoDB replica set, and an automated backup service.
+<img src="https://github.com/user-attachments/assets/efe189d7-8b67-4b2b-b00a-f399f3ed88e6" alt="MiniVentory Logo" width="480"/>
 
-**What it does**
-- Tablet-friendly checkout: pick your name, item, quantity, and an optional note
-- Atomic stock updates with full before/after audit log
-- Low-stock email alerts (rate-limited, non-blocking)
-- Scheduled summary emails (daily/weekly), configurable from the admin UI
-- Per-item auto-replenish (daily/weekly/monthly), idempotent
-- CSV export for logs and stock snapshots
-- Admin panel: items, users, logs, summary dashboard, settings
+### *Lab Inventory Simplified*
 
-**How scheduled tasks work** — the app deliberately has no internal scheduler. Instead, two HTTP endpoints (`/tasks/summary` and `/tasks/replenish`) are secured with a `CRON_TOKEN` and pinged on a schedule from the host (crontab, Synology Task Scheduler, Portainer Schedules, or Cloud Scheduler). This keeps the app stateless and easy to reason about.
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Flask-3.x-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-7.x-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![License](https://img.shields.io/badge/License-Internal%20Use-lightgrey?style=for-the-badge)](LICENSE)
+
+[🚀 Quick Start](#-step-4--deploy) · [🏗️ Architecture](#️-architecture) · [⚙️ Configuration](#️-step-1--configure) · [🐛 Report a Bug](https://github.com/neurorishika/MiniVentory/issues) · [💡 Request Feature](https://github.com/neurorishika/MiniVentory/issues)
+
+</div>
 
 ---
 
-## Architecture
+## 📋 Overview
+
+**MiniVentory** is a lightweight **consumables checkout kiosk** for labs and makerspaces. Users check out items from a tablet-friendly form; admins manage inventory, users, and settings behind a PIN gate. Everything runs in Docker — one `docker compose up` brings up the app, a two-node MongoDB replica set, and an automated backup service.
+
+<div align="center">
+<img src="https://github.com/user-attachments/assets/afbaaf92-f929-44e7-a014-de1a5f22bec9" alt="MiniVentory Screenshot" width="720"/>
+<br><sub><i>The MiniVentory checkout kiosk — tablet-friendly dark UI with real-time inventory overview</i></sub>
+</div>
+
+**What it does**
+
+| Feature | Description |
+|---------|-------------|
+| 📦 **Checkout Kiosk** | Tablet-friendly form — name, item, quantity, optional note — with live inventory overview |
+| 🔒 **Admin Panel** | PIN-gated management for items, users, logs, summaries, and settings |
+| 📉 **Low-Stock Alerts** | Automatic email notifications when stock falls below threshold (rate-limited, non-blocking) |
+| 📊 **Usage Summaries** | Configurable daily/weekly email digests; top items & users over any time window |
+| 🔄 **Auto-Replenish** | Per-item scheduled restocking (daily/weekly/monthly) with optional max-stock cap |
+| 📤 **CSV Exports** | One-click export for transaction logs and full stock snapshots |
+| 🛡️ **Secure Tasks** | `CRON_TOKEN`-protected endpoints; atomic, idempotent stock updates |
+| 🐳 **Docker-First** | Single compose file — app, replica-set Mongo, and automated backups |
+
+**How scheduled tasks work** — the app has no internal scheduler. Two HTTP endpoints (`/tasks/summary` and `/tasks/replenish`) are secured with a `CRON_TOKEN` and pinged on a schedule from the host (crontab, Synology Task Scheduler, Portainer Schedules, or Cloud Scheduler). This keeps the app stateless and easy to reason about.
+
+---
+
+## 🏗️ Architecture
 
 The production stack (`docker-compose.yml`) contains five services:
 
@@ -27,11 +54,11 @@ The production stack (`docker-compose.yml`) contains five services:
 | `mongo-backup` | Runs `mongodump --oplog` every 6 hours, compresses, rotates, and optionally pushes off-site via rclone |
 | `app` | Flask app served by Gunicorn |
 
-Three named Docker volumes are created: `miniventory_mongo_data` (primary), `miniventory_mongo_data2` (secondary), and `miniventory_mongo_backups` (compressed dumps). Named volumes survive container removal.
+Three named Docker volumes survive container removal: `miniventory_mongo_data` (primary), `miniventory_mongo_data2` (secondary), and `miniventory_mongo_backups` (compressed dumps).
 
 ---
 
-## Step 1 — Configure
+## ⚙️ Step 1 — Configure
 
 Copy the example environment file and fill in your values:
 
@@ -39,7 +66,7 @@ Copy the example environment file and fill in your values:
 cp .env.example .env
 ```
 
-Required values:
+**Required:**
 
 | Key | Purpose |
 |-----|---------|
@@ -48,7 +75,7 @@ Required values:
 | `MONGO_DB` | Database name, e.g. `lab_inventory` |
 | `CRON_TOKEN` | Shared secret for `/tasks/*` endpoints |
 
-Optional but recommended:
+**Optional but recommended:**
 
 | Key | Purpose |
 |-----|---------|
@@ -62,7 +89,7 @@ Optional but recommended:
 
 ---
 
-## Step 2 — Build and push the image
+## 🔨 Step 2 — Build and push the image
 
 The compose file references a Docker Hub image. Use `docker buildx` to build a multi-platform image so the same tag works on `amd64` servers (most cloud VMs, Synology x86) and `arm64` servers (AWS Graviton, Synology ARM, Apple Silicon):
 
@@ -86,9 +113,9 @@ Update the `image:` line in `docker-compose.yml` to match your Docker Hub userna
 
 ---
 
-## Step 3 — Set up off-site backups (run once on the server)
+## ☁️ Step 3 — Set up off-site backups (run once on the server)
 
-The backup service uses rclone to push archives off-server. Run the interactive setup script on the host to generate `scripts/rclone.conf` (this file is gitignored — credentials never go into source control):
+The backup service uses rclone to push archives off-server. Run the interactive setup script on the host to generate `scripts/rclone.conf` (gitignored — credentials never go into source control):
 
 ```bash
 # Install rclone on the host if not already present
@@ -109,13 +136,14 @@ If you skip this step, backups still run locally — `RCLONE_REMOTE` is optional
 
 ---
 
-## Step 4 — Deploy
+## 🚀 Step 4 — Deploy
 
 ### Portainer (recommended)
 
-Portainer's **Stacks** feature is the recommended way to manage the stack — it gives you a GUI for deployment, log viewing, container management, and updates without needing repeated SSH access.
+Portainer's **Stacks** feature is the recommended deployment method — it gives you a GUI for deployment, log viewing, container management, and updates without repeated SSH access.
 
-**Install Portainer** (skip if already running):
+<details>
+<summary><b>Install Portainer (skip if already running)</b></summary>
 
 ```bash
 docker run -d \
@@ -128,13 +156,15 @@ docker run -d \
 
 Access at `https://<host-ip>:9443`.
 
+</details>
+
 **Create the stack:**
 
 1. Portainer → **Stacks** → **+ Add stack** → name it `miniventory`
 2. Select **Web editor** and paste the full contents of `docker-compose.yml`
-3. Because Portainer resolves paths relative to the host (not the repo directory), replace the two relative bind-mount paths in the editor:
+3. Because Portainer resolves paths relative to the host, replace the two relative bind-mount paths:
    ```yaml
-   # in the mongo-backup volumes section, change:
+   # change:
    - ./scripts/mongo_backup.sh:/usr/local/bin/mongo_backup.sh:ro
    - ./scripts/rclone.conf:/config/rclone/rclone.conf:ro
    # to absolute paths, e.g. on Synology:
@@ -144,20 +174,23 @@ Access at `https://<host-ip>:9443`.
 4. Scroll to **Environment variables** and add every key from your `.env` file
 5. Click **Deploy the stack**
 
-The `mongo-init` service runs once, initialises the replica set, and exits. Verify it worked: **Containers** → `miniventory_mongo_1` → **Console** → run `mongosh --eval "rs.status()"` — you should see one `PRIMARY` and one `SECONDARY`.
+The `mongo-init` service runs once, initialises the replica set, and exits. Verify: **Containers** → `miniventory_mongo_1` → **Console** → `mongosh --eval "rs.status()"` — you should see one `PRIMARY` and one `SECONDARY`.
 
-**Set up cron pings** via Portainer → **Schedules** (CE 2.19+), or on the host:
+**Cron pings** via Portainer → **Schedules** (CE 2.19+), or on the host:
 
 ```cron
 0  * * * * curl -fsS "http://127.0.0.1:2152/tasks/summary?token=YOUR_CRON_TOKEN"  >/dev/null 2>&1
 5  * * * * curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
 ```
 
-**Update the app:** push a new image, then Portainer → **Stacks** → `miniventory` → **Update the stack**, or use the **Recreate** button on the `app` container with **Pull latest image** checked.
+**Update:** push a new image, then Portainer → **Stacks** → `miniventory` → **Update the stack**, or use **Recreate** on the `app` container with **Pull latest image** checked.
 
 ---
 
 ### Synology NAS (SSH + Compose)
+
+<details>
+<summary><b>Install via SSH</b></summary>
 
 ```bash
 ssh admin@<nas-ip>
@@ -166,15 +199,22 @@ git clone https://github.com/neurorishika/MiniVentory.git miniventory
 cd miniventory
 cp .env.example .env && nano .env
 bash scripts/setup_rclone.sh          # off-site backup config (Step 3)
-docker compose -p miniventory up -d --build
+docker compose -p miniventory up -d
 ```
 
-**Reverse proxy + TLS** — Control Panel → Login Portal → Reverse Proxy:
+</details>
+
+<details>
+<summary><b>Reverse proxy + TLS</b></summary>
+
+Control Panel → Login Portal → Reverse Proxy:
 - Source: `https://inventory.yourlab.local:443`
 - Destination: `http://127.0.0.1:2152`
-- Assign a certificate under Control Panel → Security → Certificate
 
-**Firewall** — restrict port 2152 to LAN; expose only 443 via the reverse proxy.
+Assign a certificate under Control Panel → Security → Certificate.
+Restrict port 2152 to LAN; expose only 443 via the reverse proxy.
+
+</details>
 
 **Cron** — Control Panel → Task Scheduler → Create → User-defined script:
 
@@ -186,12 +226,15 @@ docker compose -p miniventory up -d --build
 **Update:**
 ```bash
 cd /volume1/docker/miniventory && git pull
-docker compose -p miniventory up -d --build
+docker compose -p miniventory up -d
 ```
 
 ---
 
 ### AWS (EC2 + EBS)
+
+<details>
+<summary><b>Launch and configure</b></summary>
 
 ```bash
 # Launch EC2 (t3.small+), attach a gp3 EBS volume (>= 20 GB)
@@ -217,10 +260,12 @@ sudo systemctl restart docker
 git clone https://github.com/neurorishika/MiniVentory.git ~/miniventory
 cd ~/miniventory && cp .env.example .env && nano .env
 bash scripts/setup_rclone.sh
-docker compose -p miniventory up -d --build
+docker compose -p miniventory up -d
 ```
 
-**HTTPS** — install nginx + Certbot: `sudo certbot --nginx -d inventory.yourlab.com`
+</details>
+
+**HTTPS** — `sudo certbot --nginx -d inventory.yourlab.com`
 
 **Cron** — `crontab -e`:
 ```cron
@@ -228,7 +273,7 @@ docker compose -p miniventory up -d --build
 5  * * * * curl -fsS "http://127.0.0.1:2152/tasks/replenish?token=YOUR_CRON_TOKEN" >/dev/null 2>&1
 ```
 
-**Secrets** — store `.env` values in AWS Secrets Manager instead of a plain file on disk:
+**Secrets** — store `.env` values in AWS Secrets Manager instead of a plain file:
 ```bash
 aws secretsmanager create-secret --name miniventory/prod --secret-string file://.env
 ```
@@ -237,7 +282,8 @@ aws secretsmanager create-secret --name miniventory/prod --secret-string file://
 
 ### Google Cloud
 
-**Compute Engine (same pattern as EC2):**
+<details>
+<summary><b>Compute Engine (same pattern as AWS)</b></summary>
 
 ```bash
 gcloud compute instances create miniventory --zone=us-central1-a \
@@ -246,10 +292,13 @@ gcloud compute instances create miniventory --zone=us-central1-a \
 
 gcloud compute ssh miniventory --zone=us-central1-a
 curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER
-# re-login, then follow the same clone/configure/deploy steps as EC2 above
+# re-login, then follow the same clone/configure/deploy steps as AWS above
 ```
 
-**Cloud Run (serverless, requires external MongoDB Atlas):**
+</details>
+
+<details>
+<summary><b>Cloud Run (serverless, requires MongoDB Atlas)</b></summary>
 
 ```bash
 # Push to Artifact Registry
@@ -275,12 +324,14 @@ gcloud scheduler jobs create http miniventory-replenish \
 
 > Use `--min-instances 1` to avoid cold-start delays on the first request.
 
+</details>
+
 ---
 
-## Step 5 — Backups and recovery
+## 💾 Step 5 — Backups and recovery
 
 The `mongo-backup` service runs automatically every 6 hours. Each run:
-1. Calls `mongodump --oplog` — captures a point-in-time snapshot of all databases plus all writes that occurred mid-dump, enabling restore to any moment between windows
+1. Calls `mongodump --oplog` — captures a point-in-time snapshot plus all writes mid-dump, enabling restore to any moment between windows
 2. Compresses the dump to a timestamped `.tar.gz` in the `miniventory_mongo_backups` volume
 3. Rotates archives older than `BACKUP_KEEP_DAYS` days (default 14), both locally and on the remote
 4. Pushes the new archive to `RCLONE_REMOTE` if configured
@@ -317,25 +368,25 @@ docker cp /tmp/${BACKUP}.tar.gz \
 # then run the restore block above
 ```
 
-**Check replica set health at any time:**
+**Check replica set health:**
 ```bash
 docker exec -it miniventory-mongo-1 mongosh --eval "rs.status()"
 ```
 
 ---
 
-## Security checklist
+## 🛡️ Security checklist
 
-- Run on LAN only; gate external access with a firewall
-- Use a reverse proxy (nginx / Synology Login Portal) with TLS — never expose port 2152 directly to the internet
-- Set a strong random `SECRET_KEY`, a non-trivial `ADMIN_PIN`, and a long `CRON_TOKEN`
-- Store secrets in AWS Secrets Manager / GCP Secret Manager / Portainer Secrets — not in a plain `.env` on disk in production
-- Keep Mongo non-public; do not expose port 27017 outside the Docker network
-- Regularly update container images: `docker compose pull && docker compose up -d`
+- [ ] Run on LAN only; gate external access with a firewall
+- [ ] Use a reverse proxy (nginx / Synology Login Portal) with TLS — never expose port 2152 directly to the internet
+- [ ] Set a strong random `SECRET_KEY`, a non-trivial `ADMIN_PIN`, and a long `CRON_TOKEN`
+- [ ] Store secrets in AWS Secrets Manager / GCP Secret Manager / Portainer Secrets — not in a plain `.env` on disk in production
+- [ ] Keep Mongo non-public; do not expose port 27017 outside the Docker network
+- [ ] Regularly update container images: `docker compose pull && docker compose up -d`
 
 ---
 
-## Development
+## 🧑‍💻 Development
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -344,22 +395,31 @@ cp .env.example .env   # set MONGO_URI to a local Mongo instance
 python app.py
 ```
 
-Health endpoint: `GET /health` returns `{ "ok": true }`
+Health endpoint: `GET /health` → `{ "ok": true }`
 
-Logs in production:
+**Logs in production:**
 ```bash
 docker compose -p miniventory logs -f app
 docker compose -p miniventory logs -f mongo-backup
 ```
 
-Common issues:
-- **Mongo connectivity on startup** — if Mongo is temporarily unreachable at boot, index creation is skipped with a warning and retried on the next deployment; the app will still serve requests
-- **Email not sending** — verify `SMTP_HOST`, port, `SMTP_USE_SSL`, credentials, and that your firewall allows outbound SMTP
-- **Cron pings doing nothing** — confirm `CRON_TOKEN` in `.env` matches the token in the curl command; check the scheduler logs on your platform
-- **Replica set not initialising** — check `mongo-init` container logs: `docker logs miniventory-mongo-init-1`
+**Common issues:**
+
+| Symptom | Fix |
+|---------|-----|
+| Mongo unreachable at startup | Index creation is skipped with a warning and retried on next deploy; app still serves requests |
+| Email not sending | Verify `SMTP_HOST`, port, `SMTP_USE_SSL`, credentials, and outbound firewall |
+| Cron pings doing nothing | Confirm `CRON_TOKEN` in `.env` matches the token in the curl command; check scheduler logs |
+| Replica set not initialising | Check init container logs: `docker logs miniventory-mongo-init-1` |
 
 ---
 
-## License
+## 📄 License
 
-Provided as-is for internal lab use. You own your data and deployment.
+This project is provided as-is for internal lab use. You own your data and deployment.
+
+---
+
+<div align="center">
+<sub>Built with ❤️ for lab life · <a href="https://github.com/neurorishika">neurorishika</a></sub>
+</div>
