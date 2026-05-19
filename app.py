@@ -19,6 +19,7 @@ from flask import (
     jsonify,
 )
 from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo.errors import DuplicateKeyError
 from dotenv import load_dotenv
 
 # --- Config & DB ---
@@ -57,6 +58,9 @@ alerts_col = db[
 settings_col = db[
     "settings"
 ]  # single doc: { _id:"app", summary_frequency, summary_hour_utc, summary_weekday, last_summary_sent_utc }
+scheduler_locks_col = db[
+    "scheduler_locks"
+]  # TTL collection — insert_one acts as a distributed mutex across Gunicorn workers
 
 # helpful indexes (best-effort at startup; recreated on first write if missed)
 try:
@@ -64,6 +68,8 @@ try:
     users_col.create_index([("name", ASCENDING)], unique=True)
     logs_col.create_index([("time", DESCENDING)])
     alerts_col.create_index([("item", ASCENDING)], unique=True)
+    # TTL index on scheduler_locks: MongoDB auto-expires docs after the 'expires' time
+    scheduler_locks_col.create_index("expires", expireAfterSeconds=0)
 except Exception as _idx_err:
     import logging as _logging
     _logging.getLogger(__name__).warning("MongoDB index creation skipped at startup: %s", _idx_err)
@@ -1105,6 +1111,80 @@ def tasks_replenish_debug():
             "items_with_auto_replenish": items_status,
         }
     )
+
+
+# ---------- Internal scheduler (replaces external cron) ----------
+# Uses a MongoDB TTL collection as a distributed mutex so only one Gunicorn
+# worker executes each job even when running with -w 2 (or more).
+
+import logging as _sched_logging
+_sched_log = _sched_logging.getLogger("miniventory.scheduler")
+
+
+def _run_job_with_lock(job_key: str, fn, lock_ttl_seconds: int = 3540):
+    """Acquire a Mongo-based lock then run fn(); skip silently if lock is held.
+
+    lock_ttl_seconds defaults to 59 min — slightly under the 60-min interval so
+    the lock always expires before the next run attempt.
+    """
+    try:
+        scheduler_locks_col.insert_one(
+            {
+                "_id": job_key,
+                "expires": datetime.utcnow() + timedelta(seconds=lock_ttl_seconds),
+                "pid": os.getpid(),
+            }
+        )
+    except DuplicateKeyError:
+        # Another worker already holds the lock for this tick — skip.
+        return
+    except Exception as exc:
+        _sched_log.warning("scheduler lock acquire error for %s: %s", job_key, exc)
+        return
+    try:
+        fn()
+    except Exception as exc:
+        _sched_log.error("scheduled job %s raised: %s", job_key, exc)
+
+
+def _scheduled_summary():
+    _sched_log.info("running scheduled summary check")
+    _run_job_with_lock("summary", lambda: send_summary_email_if_due(datetime.utcnow()))
+
+
+def _scheduled_replenish():
+    _sched_log.info("running scheduled replenish check")
+
+    def _do():
+        now = datetime.utcnow()
+        for it in items_col.find({"auto_replenish_enabled": True}):
+            it = _ensure_item_defaults(it)
+            if _is_replenish_due(now, it):
+                qty = int(it.get("auto_replenish_qty", 0) or 0)
+                cap = it.get("auto_replenish_max_stock", None)
+                try:
+                    _apply_replenish(
+                        it["name"], qty, cap if isinstance(cap, int) else None
+                    )
+                except Exception as exc:
+                    _sched_log.error("replenish failed for %s: %s", it["name"], exc)
+
+    _run_job_with_lock("replenish", _do)
+
+
+# Only start the scheduler once — not inside the Flask reloader child process.
+import werkzeug.serving as _wz_serving
+
+if not _wz_serving.is_running_from_reloader():
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    _scheduler = BackgroundScheduler(daemon=True, timezone="UTC")
+    _scheduler.add_job(_scheduled_summary, "interval", hours=1, id="summary",
+                       max_instances=1, coalesce=True)
+    _scheduler.add_job(_scheduled_replenish, "interval", hours=1, id="replenish",
+                       max_instances=1, coalesce=True)
+    _scheduler.start()
+    _sched_log.info("Internal scheduler started (pid=%s)", os.getpid())
 
 
 if __name__ == "__main__":
