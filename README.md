@@ -30,12 +30,15 @@
 | Feature | Description |
 |---------|-------------|
 | 📦 **Checkout Kiosk** | Tablet-friendly form — name, item, quantity, optional note — with live inventory overview |
+| 🛑 **Duplicate-Safe Submits** | A lagging tablet can't double-log: each form carries a one-time token the server rejects on replay, and the button locks on tap |
+| ↩️ **One-Tap Undo** | The confirmation page has an "Undo" button that reverses the stock change and removes the entry if a user made a mistake |
+| 🧹 **Log Cleanup Tool** | Admin tool to preview and remove rapid sequential duplicate entries from existing data, restoring stock automatically |
 | 🔒 **Admin Panel** | PIN-gated management for items, users, logs, summaries, and settings |
 | 📉 **Low-Stock Alerts** | Automatic email notifications when stock falls below threshold (rate-limited, non-blocking) |
 | 📊 **Usage Summaries** | Configurable daily/weekly email digests; top items & users over any time window |
 | 🔄 **Auto-Replenish** | Per-item scheduled restocking (daily/weekly/monthly) with optional max-stock cap |
 | 📤 **CSV Exports** | One-click export for transaction logs and full stock snapshots |
-| � **Internal Scheduler** | APScheduler fires summary and replenish tasks every hour inside the container — no external cron needed |
+| ⏰ **Internal Scheduler** | APScheduler fires summary and replenish tasks every hour inside the container — no external cron needed |
 | 🛡️ **Secure Tasks** | `CRON_TOKEN`-protected HTTP endpoints for manual or external triggers; atomic, idempotent stock updates |
 | 🐳 **Docker-First** | Single compose file — app, replica-set Mongo, and automated backups |
 
@@ -444,7 +447,24 @@ The `mongo-init` service runs once, initialises the replica set, and exits. Veri
 
 > **No external cron needed.** The app schedules summary and replenish tasks internally. The `/tasks/*` endpoints are still available as a manual trigger — if you want an additional external ping via Portainer → **Schedules** (CE 2.19+) you can add one, but it is not required.
 
-**Update:** push a new image, then Portainer → **Stacks** → `miniventory` → **Update the stack**, or use **Recreate** on the `app` container with **Pull latest image** checked.
+**Redeploying after a code change** — whenever you change `app.py`, templates, or static assets, the running container keeps the *old* code until you rebuild the image and have Portainer pull it. Only the `app` service is affected; your MongoDB data and volumes are untouched.
+
+1. **Rebuild and push the image** (from your dev machine, in the repo root):
+   ```bash
+   docker buildx build \
+     --platform linux/amd64,linux/arm64 \
+     -t neurorishika/miniventory:latest \
+     --push .
+   ```
+   (Single-arch is fine too — e.g. `--platform linux/amd64` for most VMs. Use the same image name as the `image:` line in your stack.)
+
+2. **Pull it on the server** — Portainer → **Stacks** → `miniventory` → **Update the stack** → tick **Re-pull image and redeploy** → **Update**. Portainer pulls the new `:latest` digest and recreates the `app` container.
+
+   *Alternative:* Portainer → **Containers** → `miniventory_app_1` → **Recreate** with **Pull latest image** checked — recreates just the app without touching the Mongo containers.
+
+3. **Verify:** open the kiosk and check the new **Cleanup** link appears in the admin nav, and that the confirmation page shows the **Undo** button. New MongoDB indexes (the `submit_tokens` collection) are created automatically on first boot — no manual migration needed.
+
+> Because the stack uses the `:latest` tag, "Update the stack" **without** re-pull won't fetch new code — the tag already matches. Always tick **Re-pull image and redeploy** (or use a versioned tag like `:2026-06-22` and bump the `image:` line each release for unambiguous updates).
 
 ---
 

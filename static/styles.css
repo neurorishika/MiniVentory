@@ -139,6 +139,18 @@ a.button.danger:hover{
   box-shadow:0 4px 12px rgba(239,71,111,.3)
 }
 
+/* Confirmation-page actions: Back + Undo side by side */
+.success-actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+  margin-top:8px
+}
+.success-actions .inline-form{margin:0;width:auto}
+.success-actions button{width:auto;margin-top:0}
+.success-actions a.button{margin:0}
+
 .table{
   width:100%;
   border-collapse:collapse;

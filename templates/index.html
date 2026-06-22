@@ -5,6 +5,7 @@
   <div>
     <h1>Take an Item</h1>
     <form class="card" action="{{ url_for('checkout') }}" method="POST">
+      <input type="hidden" name="submit_token" value="{{ checkout_token }}">
       <div class="grid">
         <div>
           <label for="checkout-user">Your Name</label>
@@ -45,6 +46,7 @@
   <div>
     <h1>Return an Item</h1>
     <form class="card" action="{{ url_for('dropoff') }}" method="POST">
+      <input type="hidden" name="submit_token" value="{{ dropoff_token }}">
       <div class="grid">
         <div>
           <label for="dropoff-user">Your Name</label>

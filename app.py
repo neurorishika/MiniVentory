@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import secrets
 import smtplib
 import ssl
 import time
@@ -20,6 +21,8 @@ from flask import (
 )
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import DuplicateKeyError
+from bson import ObjectId
+from bson.errors import InvalidId
 from dotenv import load_dotenv
 
 # --- Config & DB ---
@@ -61,6 +64,12 @@ settings_col = db[
 scheduler_locks_col = db[
     "scheduler_locks"
 ]  # TTL collection — insert_one acts as a distributed mutex across Gunicorn workers
+submit_tokens_col = db[
+    "submit_tokens"
+]  # TTL collection — one-time idempotency tokens to reject duplicate form submissions
+
+# how long a one-time submit token stays valid / blocks replays (seconds)
+SUBMIT_TOKEN_TTL_SECONDS = 24 * 60 * 60
 
 # helpful indexes (best-effort at startup; recreated on first write if missed)
 try:
@@ -70,6 +79,12 @@ try:
     alerts_col.create_index([("item", ASCENDING)], unique=True)
     # TTL index on scheduler_locks: MongoDB auto-expires docs after the 'expires' time
     scheduler_locks_col.create_index("expires", expireAfterSeconds=0)
+    # one-time submit tokens: unique 'token' makes a replayed insert fail atomically;
+    # TTL on 'created' auto-cleans old tokens so the collection never grows unbounded
+    submit_tokens_col.create_index("token", unique=True)
+    submit_tokens_col.create_index(
+        "created", expireAfterSeconds=SUBMIT_TOKEN_TTL_SECONDS
+    )
 except Exception as _idx_err:
     import logging as _logging
     _logging.getLogger(__name__).warning("MongoDB index creation skipped at startup: %s", _idx_err)
@@ -480,13 +495,39 @@ def admin_logout():
 
 
 # --- Public kiosk (no login) ---
+def _consume_submit_token(token: str) -> bool:
+    """Atomically claim a one-time submit token.
+
+    Returns True if this is the first time the token is seen (submission allowed),
+    False if it was already used (a duplicate/replayed submission) or missing.
+    The unique index on `token` makes the insert fail for any replay, so this is
+    race-proof across Gunicorn workers.
+    """
+    if not token:
+        return False
+    try:
+        submit_tokens_col.insert_one(
+            {"token": token, "created": datetime.utcnow()}
+        )
+        return True
+    except DuplicateKeyError:
+        return False
+
+
 @app.route("/", methods=["GET"])
 def index():
     users = list(
         users_col.find({"is_active": True}, {"_id": 0}).sort("name", ASCENDING)
     )
     items = list(items_col.find({}, {"_id": 0}).sort("name", ASCENDING))
-    return render_template("index.html", users=users, items=items)
+    # one-time tokens — one per form — so a lag-induced double submit is rejected server-side
+    return render_template(
+        "index.html",
+        users=users,
+        items=items,
+        checkout_token=secrets.token_urlsafe(24),
+        dropoff_token=secrets.token_urlsafe(24),
+    )
 
 
 @app.route("/checkout", methods=["POST"])
@@ -495,6 +536,11 @@ def checkout():
     item_name = request.form.get("item")
     qty = request.form.get("quantity")
     note = request.form.get("note", "")
+
+    # idempotency: reject a duplicate submission (lag-induced double tap, resubmit) up front
+    if not _consume_submit_token(request.form.get("submit_token", "")):
+        flash("That submission was already recorded — ignoring the duplicate.", "info")
+        return redirect(url_for("index"))
 
     try:
         qty = int(qty)
@@ -523,7 +569,7 @@ def checkout():
         flash("Stock changed while you were checking out. Please try again.", "warning")
         return redirect(url_for("index"))
 
-    logs_col.insert_one(
+    log_result = logs_col.insert_one(
         {
             "time": datetime.utcnow(),
             "user": user,
@@ -554,6 +600,7 @@ def checkout():
         low_alert=low_alert,
         low_threshold=low,
         action="checkout",
+        log_id=str(log_result.inserted_id),
     )
 
 
@@ -563,6 +610,11 @@ def dropoff():
     item_name = request.form.get("item")
     qty = request.form.get("quantity")
     note = request.form.get("note", "")
+
+    # idempotency: reject a duplicate submission (lag-induced double tap, resubmit) up front
+    if not _consume_submit_token(request.form.get("submit_token", "")):
+        flash("That submission was already recorded — ignoring the duplicate.", "info")
+        return redirect(url_for("index"))
 
     try:
         qty = int(qty)
@@ -591,7 +643,7 @@ def dropoff():
         flash("Stock changed while you were dropping off. Please try again.", "warning")
         return redirect(url_for("index"))
 
-    logs_col.insert_one(
+    log_result = logs_col.insert_one(
         {
             "time": datetime.utcnow(),
             "user": user,
@@ -612,7 +664,42 @@ def dropoff():
         low_alert=False,
         low_threshold=0,
         action="dropoff",
+        log_id=str(log_result.inserted_id),
     )
+
+
+@app.route("/cancel", methods=["POST"])
+def cancel():
+    """Undo the entry the user just made on the confirmation page.
+
+    Restores stock with an atomic $inc (so it is correct even if someone else
+    changed stock in between) and deletes the log entry. Idempotent: if the log
+    was already removed, it is a harmless no-op.
+    """
+    log_id = request.form.get("log_id", "")
+    try:
+        oid = ObjectId(log_id)
+    except (InvalidId, TypeError):
+        flash("Could not undo: invalid entry reference.", "danger")
+        return redirect(url_for("index"))
+
+    log_doc = logs_col.find_one_and_delete({"_id": oid})
+    if not log_doc:
+        flash("Nothing to undo — that entry was already removed.", "info")
+        return redirect(url_for("index"))
+
+    qty = int(log_doc.get("qty", 0))
+    item_name = log_doc.get("item")
+    # checkout removed stock (+qty back); dropoff added stock (-qty back)
+    # infer direction from before/after so it works regardless of action label
+    delta = int(log_doc.get("before", 0)) - int(log_doc.get("after", 0))
+    items_col.update_one({"name": item_name}, {"$inc": {"stock": delta}})
+
+    flash(
+        f"Undone — {qty} of {item_name} reversed and the entry removed.",
+        "success",
+    )
+    return redirect(url_for("index"))
 
 
 # --- Admin: home/dashboard ---
@@ -810,6 +897,120 @@ def admin_logs():
         items=items,
         q_user=q_user,
         q_item=q_item,
+    )
+
+
+DEFAULT_DUP_WINDOW_SECONDS = 60
+
+
+def _find_duplicate_clusters(window_seconds: int):
+    """Fetch all logs (time-ordered) and find rapid sequential duplicate clusters."""
+    logs = list(logs_col.find({}).sort("time", ASCENDING))
+    return _cluster_logs(logs, window_seconds)
+
+
+def _cluster_logs(logs, window_seconds: int):
+    """Find clusters of rapid sequential duplicate log entries (pure helper).
+
+    `logs` must be time-ordered (ascending). A cluster is a run of
+    consecutive-in-time entries sharing the same (user, item, qty, direction)
+    where each entry is within `window_seconds` of the previous one. The first
+    entry in each cluster is kept; the rest are flagged for removal. Returns a
+    list of cluster dicts (only clusters that have something to remove).
+    """
+    groups: dict = {}
+    for log in logs:
+        before = int(log.get("before", 0))
+        after = int(log.get("after", 0))
+        direction = "checkout" if before > after else "dropoff"
+        key = (log.get("user"), log.get("item"), int(log.get("qty", 0)), direction)
+        groups.setdefault(key, []).append(log)
+
+    clusters = []
+    window = timedelta(seconds=window_seconds)
+    for (user, item, qty, direction), entries in groups.items():
+        # entries already in time order; split into runs by the time gap
+        run = [entries[0]]
+        for prev, cur in zip(entries, entries[1:]):
+            if (cur["time"] - prev["time"]) <= window:
+                run.append(cur)
+            else:
+                clusters.append(_make_cluster(run, user, item, qty, direction))
+                run = [cur]
+        clusters.append(_make_cluster(run, user, item, qty, direction))
+
+    # keep only clusters that actually have duplicates to remove
+    return [c for c in clusters if c["remove_count"] > 0]
+
+
+def _make_cluster(run, user, item, qty, direction):
+    keep = run[0]
+    remove = run[1:]
+    # stock restored = sum of each removed entry's effect on stock (before - after)
+    restore = sum(int(r.get("before", 0)) - int(r.get("after", 0)) for r in remove)
+    return {
+        "user": user,
+        "item": item,
+        "qty": qty,
+        "direction": direction,
+        "keep_id": str(keep["_id"]),
+        "keep_time": keep["time"],
+        "remove_ids": [str(r["_id"]) for r in remove],
+        "remove_times": [r["time"] for r in remove],
+        "remove_count": len(remove),
+        "restore": restore,
+    }
+
+
+@app.route("/admin/cleanup", methods=["GET", "POST"])
+@admin_required
+def admin_cleanup():
+    try:
+        window = int(request.values.get("window", DEFAULT_DUP_WINDOW_SECONDS))
+        if window <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        window = DEFAULT_DUP_WINDOW_SECONDS
+
+    if request.method == "POST":
+        clusters = _find_duplicate_clusters(window)
+        removed_total = 0
+        stock_by_item: dict = {}
+        remove_oids = []
+        for c in clusters:
+            stock_by_item[c["item"]] = stock_by_item.get(c["item"], 0) + c["restore"]
+            for rid in c["remove_ids"]:
+                try:
+                    remove_oids.append(ObjectId(rid))
+                except (InvalidId, TypeError):
+                    pass
+
+        # restore stock per item (atomic $inc), then delete the duplicate logs
+        for item_name, delta in stock_by_item.items():
+            if delta:
+                items_col.update_one({"name": item_name}, {"$inc": {"stock": delta}})
+        if remove_oids:
+            result = logs_col.delete_many({"_id": {"$in": remove_oids}})
+            removed_total = result.deleted_count
+
+        if removed_total:
+            flash(
+                f"Cleanup complete — removed {removed_total} duplicate "
+                f"entr{'y' if removed_total == 1 else 'ies'} and restored stock.",
+                "success",
+            )
+        else:
+            flash("No duplicate entries found to clean up.", "info")
+        return redirect(url_for("admin_cleanup", window=window))
+
+    # GET — preview only, no changes
+    clusters = _find_duplicate_clusters(window)
+    total_remove = sum(c["remove_count"] for c in clusters)
+    return render_template(
+        "admin_cleanup.html",
+        clusters=clusters,
+        window=window,
+        total_remove=total_remove,
     )
 
 

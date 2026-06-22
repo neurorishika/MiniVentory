@@ -12,6 +12,16 @@
       <p class="warn">⚠ Low stock! At or below threshold ({{ low_threshold }}).</p>
     {% endif %}
   {% endif %}
-  <a class="button" href="{{ url_for('index') }}">Back to Home</a>
+  <div class="success-actions">
+    <a class="button" href="{{ url_for('index') }}">Back to Home</a>
+    {% if log_id %}
+    <form action="{{ url_for('cancel') }}" method="POST" class="inline-form"
+          onsubmit="return confirm('Undo this entry? Stock will be restored and the record removed.');">
+      <input type="hidden" name="log_id" value="{{ log_id }}">
+      <button class="danger" type="submit">✕ Undo this entry</button>
+    </form>
+    {% endif %}
+  </div>
+  <p class="muted">Made a mistake? Undo restores the stock and removes this entry.</p>
 </div>
 {% endblock %}

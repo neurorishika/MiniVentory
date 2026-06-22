@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Cleanup Duplicate Entries</h1>
+
+<div class="card">
+  <p class="muted">
+    Finds runs of <strong>rapid sequential duplicate</strong> entries — same user, item,
+    quantity, and direction, each within the time window of the previous one (these are
+    usually caused by a lagging tablet registering one tap as many). The first entry in
+    each run is kept; the rest are removed and their stock effect is reversed.
+  </p>
+  <form method="GET" class="inline-form">
+    <label>Time window (seconds)</label>
+    <div class="grid">
+      <input type="number" name="window" min="1" value="{{ window }}">
+      <button class="primary" type="submit">Preview</button>
+    </div>
+  </form>
+</div>
+
+{% if clusters %}
+<div class="card">
+  <p><strong>{{ total_remove }}</strong> duplicate entr{{ 'y' if total_remove == 1 else 'ies' }}
+     across <strong>{{ clusters|length }}</strong> cluster{{ '' if clusters|length == 1 else 's' }}
+     would be removed.</p>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>User</th><th>Item</th><th>Qty</th><th>Direction</th>
+        <th>Kept (UTC)</th><th>Removed timestamps</th><th>#</th><th>Stock restored</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in clusters %}
+      <tr>
+        <td>{{ c.user }}</td>
+        <td>{{ c.item }}</td>
+        <td>{{ c.qty }}</td>
+        <td>{{ c.direction }}</td>
+        <td><code>{{ c.keep_time.strftime("%Y-%m-%d %H:%M:%S") }}</code></td>
+        <td>
+          {% for t in c.remove_times %}
+            <code>{{ t.strftime("%H:%M:%S") }}</code>{{ "" if loop.last else ", " }}
+          {% endfor %}
+        </td>
+        <td>{{ c.remove_count }}</td>
+        <td>{{ "+" if c.restore > 0 else "" }}{{ c.restore }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="POST"
+        onsubmit="return confirm('Remove {{ total_remove }} duplicate entries and restore stock? This cannot be undone.');">
+    <input type="hidden" name="window" value="{{ window }}">
+    <button class="danger" type="submit">Apply cleanup — remove {{ total_remove }} entr{{ 'y' if total_remove == 1 else 'ies' }}</button>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <p class="muted">✔ No duplicate entries found within a {{ window }}-second window. Nothing to clean up.</p>
+</div>
+{% endif %}
+{% endblock %}
